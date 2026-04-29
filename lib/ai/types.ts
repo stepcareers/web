@@ -11,23 +11,51 @@ import { z } from "zod";
 
 export const ConfidenceSchema = z.object({
   level: z.enum(["high", "medium", "low"]),
-  reason: z.string().min(5).max(600),
+  reason: z.string().min(5).max(600).describe("Why this confidence level (1-2 sentences)."),
 });
 
 export const RecommendationSchema = z.object({
-  title: z.string().min(5).max(160),
-  rationale: z.string().min(20).max(1000),
-  ninetyDayActions: z.array(z.string().min(8).max(600)).min(2).max(6),
-  twelveMonthOutcome: z.string().min(15).max(600),
-  similarProfilePattern: z.string().min(20).max(900),
+  title: z.string().min(5).max(160).describe("Action-oriented title (5-12 words)."),
+  rationale: z.string().min(20).max(1000).describe("2-3 sentences on why this fits the user."),
+  ninetyDayActions: z
+    .array(z.string().min(8).max(600))
+    .min(2)
+    .max(6)
+    .describe("3-4 concrete, time-bounded actions, each 1-2 sentences."),
+  twelveMonthOutcome: z.string().min(15).max(600).describe("One sentence on the 12-month state."),
+  similarProfilePattern: z
+    .string()
+    .min(20)
+    .max(900)
+    .describe("What similar profiles did, with honest counts (1-2 sentences)."),
   confidence: ConfidenceSchema,
-  basedOnPathIds: z.array(z.string().min(2)).min(1).max(6),
+  basedOnPathIds: z
+    .array(z.string().min(2))
+    .min(1)
+    .max(6)
+    .describe("path_id slugs cited from retrieved paths."),
 });
 
 export const RecommendResultSchema = z.object({
-  recommendations: z.array(RecommendationSchema).min(2).max(6),
-  honestTake: z.string().min(80).max(2200),
-  whatWeDontKnow: z.string().min(20).max(1100),
+  recommendations: z
+    .array(RecommendationSchema)
+    .min(2)
+    .max(6)
+    .describe("3-4 ranked recommendations. Quality over quantity."),
+  honestTake: z
+    .string()
+    .min(80)
+    .max(2200)
+    .describe(
+      "ALWAYS REQUIRED. Never omit. A 4-6 sentence paragraph in senior peer voice — direct, opinionated, possibly uncomfortable. Reflects what the user said matters to them.",
+    ),
+  whatWeDontKnow: z
+    .string()
+    .min(20)
+    .max(1100)
+    .describe(
+      "ALWAYS REQUIRED. Never omit. 2-3 sentences on the gaps in the user's input that would change recommendations if filled.",
+    ),
 });
 
 export type Confidence = z.infer<typeof ConfidenceSchema>;

@@ -37,11 +37,13 @@ const VOYAGE_MODEL = "voyage-3-large";
 const VOYAGE_DIMENSIONS = 1024;
 const MODEL_KEY = `${VOYAGE_MODEL}-${VOYAGE_DIMENSIONS}`;
 const TOP_K = 5;
-// Haiku 4.5 instead of Sonnet 4.5 → ~5x faster, fits in Vercel Hobby's 60s cap.
-// Quality is slightly lower for nuanced honest takes; revisit if user feedback
-// signals it. Fallback options: upgrade Vercel Pro (300s cap), or use Sonnet 4
-// (mid-tier speed/quality).
-const CLAUDE_MODEL = "claude-haiku-4-5";
+// Sonnet 4.6 → newer than 4.5, generally faster, and substantially more
+// reliable at filling complete structured outputs (Haiku 4.5 was dropping
+// the trailing honestTake/whatWeDontKnow fields in tool-call mode). With
+// the prompt now demanding concise recommendations, total time fits in
+// Vercel Hobby's 60s cap in practice; if we see timeouts, options are
+// Vercel Pro (300s cap) or streamObject for partial UI.
+const CLAUDE_MODEL = "claude-sonnet-4-6";
 
 /* ─── Pool singleton ────────────────────────────────────────────────── */
 
