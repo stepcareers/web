@@ -226,6 +226,12 @@ export async function POST(req: NextRequest) {
       schema: RecommendResultSchema,
       system: RECOMMEND_SYSTEM_PROMPT,
       prompt: userPrompt,
+      // Output is a structured JSON with up to 5 recommendations + honestTake
+      // + whatWeDontKnow. Empirically 4 verbose recs alone hit ~3k tokens, so
+      // we give Haiku a generous ceiling to avoid truncation that drops the
+      // trailing required fields.
+      maxOutputTokens: 8000,
+      temperature: 0.5,
     });
   } catch (err) {
     // Surface as much detail as possible — schema validation failures
