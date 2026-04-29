@@ -1455,9 +1455,19 @@ function LoadingView({
   );
 }
 
-/* ─── Now → Vision timeline (top of result) ───────────────────── */
+/* ─── Roadmap timeline (top of result) ───────────────────────── */
 
-function NowToFutureBar({ profile }: { profile: ProfileSnapshot | null }) {
+function trim(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max - 1).trimEnd() + "…" : text;
+}
+
+function RoadmapTimeline({
+  profile,
+  recommendations,
+}: {
+  profile: ProfileSnapshot | null;
+  recommendations: Recommendation[];
+}) {
   if (!profile) return null;
 
   const stageLabel = STAGE_SHORT[profile.stage];
@@ -1470,91 +1480,125 @@ function NowToFutureBar({ profile }: { profile: ProfileSnapshot | null }) {
 
   const targetSalary =
     profile.minSalary !== undefined
-      ? `${sym}${profile.minSalary.toLocaleString()}+/yr`
+      ? `${sym}${profile.minSalary.toLocaleString()}+`
       : null;
 
-  const visionText =
-    profile.futureSelf?.trim() ||
-    "Your 5-year vision (add one in step 3 to make this richer)";
-  const visionShort =
-    visionText.length > 140 ? visionText.slice(0, 137) + "…" : visionText;
+  // Day 90 — total action count across recs (signal of commitment volume)
+  const totalActions = recommendations.reduce(
+    (acc, r) => acc + r.ninetyDayActions.length,
+    0,
+  );
+  const top = recommendations[0];
+
+  // Month 12 — top recommendation's outcome (truncated)
+  const month12Detail = top
+    ? trim(top.twelveMonthOutcome, 95)
+    : "First visible outcome";
+
+  // Year 5 — futureSelf, fallback prompt
+  const visionRaw = profile.futureSelf?.trim();
+  const year5Detail = visionRaw
+    ? trim(visionRaw, 110)
+    : "Add a 5-year vision (Start over → step 3) to anchor this";
+
+  const milestones: Array<{
+    label: string;
+    primary: string;
+    secondary?: string;
+    filled: boolean;
+  }> = [
+    {
+      label: "Now",
+      primary: stageLabel,
+      secondary:
+        [profile.locationPreferred, nowSalary].filter(Boolean).join(" · ") ||
+        undefined,
+      filled: true,
+    },
+    {
+      label: "Day 90",
+      primary: `${totalActions} concrete actions`,
+      secondary: top ? trim(top.title, 60) : "Across your top moves",
+      filled: false,
+    },
+    {
+      label: "Month 12",
+      primary: month12Detail,
+      secondary: targetSalary ? `Toward ${targetSalary}` : undefined,
+      filled: false,
+    },
+    {
+      label: "Year 5",
+      primary: year5Detail,
+      secondary: undefined,
+      filled: false,
+    },
+  ];
 
   return (
     <section
-      aria-label="Where you are vs where you want to go"
+      aria-label="Your career roadmap"
       className="rounded-xl border border-ink-200/25 bg-ink-200/[0.03] p-5 dark:bg-ink-50/[0.02]"
     >
-      <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
-        {/* NOW */}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-ink-950 dark:bg-ink-50" />
-            <span className="text-xs font-semibold uppercase tracking-wider text-ink-200/70">
-              Now
-            </span>
-          </div>
-          <span className="text-base font-medium leading-snug">
-            {stageLabel}
-            {profile.locationPreferred ? ` · ${profile.locationPreferred}` : ""}
+      <div className="mb-4 flex items-baseline justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-200/70">
+          Your roadmap
+        </h2>
+        {top && (
+          <span className="text-[10px] uppercase tracking-wider text-ink-200/45">
+            anchored to recommendation #1
           </span>
-          {nowSalary && (
-            <span className="text-sm text-ink-200/70 dark:text-ink-200/60">
-              {nowSalary}
-            </span>
-          )}
-        </div>
+        )}
+      </div>
 
-        {/* Connector */}
-        <div className="flex flex-col items-center justify-center pt-3">
-          <svg
-            width="80"
-            height="20"
-            viewBox="0 0 80 20"
-            className="text-ink-200/40"
-            aria-hidden="true"
-          >
-            <line
-              x1="2"
-              y1="10"
-              x2="70"
-              y2="10"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeDasharray="3 3"
-            />
-            <polyline
-              points="64,4 72,10 64,16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          <span className="mt-1 text-[10px] uppercase tracking-wider text-ink-200/45">
-            5 years
-          </span>
-        </div>
-
-        {/* VISION */}
-        <div className="flex flex-col gap-1.5 text-right">
-          <div className="flex items-center justify-end gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-ink-200/70">
-              Vision
-            </span>
-            <span className="h-2.5 w-2.5 rounded-full border-2 border-ink-950 dark:border-ink-50" />
-          </div>
-          <span className="text-base font-medium leading-snug">
-            {visionShort}
-          </span>
-          {targetSalary && (
-            <span className="text-sm text-ink-200/70 dark:text-ink-200/60">
-              Target: {targetSalary}
-            </span>
-          )}
+      {/* Connector line behind dots — desktop only */}
+      <div className="relative">
+        <div
+          aria-hidden="true"
+          className="absolute left-0 right-0 top-[5px] hidden h-px bg-gradient-to-r from-ink-50/60 via-ink-200/30 to-ink-200/15 sm:block"
+        />
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-4 sm:gap-3">
+          {milestones.map((m) => (
+            <Milestone key={m.label} {...m} />
+          ))}
         </div>
       </div>
     </section>
+  );
+}
+
+function Milestone({
+  label,
+  primary,
+  secondary,
+  filled,
+}: {
+  label: string;
+  primary: string;
+  secondary?: string;
+  filled: boolean;
+}) {
+  return (
+    <div className="flex flex-row items-start gap-3 sm:flex-col sm:gap-2">
+      <span
+        className={`relative z-10 mt-1 h-2.5 w-2.5 shrink-0 rounded-full sm:mt-0 ${
+          filled
+            ? "bg-ink-950 ring-4 ring-ink-200/20 dark:bg-ink-50 dark:ring-ink-50/15"
+            : "border-2 border-ink-200/40 bg-ink-950 dark:bg-ink-950"
+        }`}
+      />
+      <div className="flex flex-col gap-1 sm:gap-1.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/70">
+          {label}
+        </span>
+        <span className="text-sm font-medium leading-snug">{primary}</span>
+        {secondary && (
+          <span className="text-xs leading-snug text-ink-200/65 dark:text-ink-200/55">
+            {secondary}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1570,7 +1614,10 @@ function ResultView({
   const { result, meta } = data;
   return (
     <section className="flex flex-col gap-10">
-      <NowToFutureBar profile={profile} />
+      <RoadmapTimeline
+        profile={profile}
+        recommendations={result.recommendations}
+      />
 
       <div>
         <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
@@ -1665,7 +1712,9 @@ function PostResultCTA() {
       <section className="rounded-xl border border-ink-200/30 bg-ink-200/[0.04] p-6 dark:bg-ink-50/[0.03]">
         <h2 className="text-lg font-semibold">You&apos;re in.</h2>
         <p className="mt-2 text-sm text-ink-200/80 dark:text-ink-200/70">
-          We&apos;ll email you in 7 days with your first 90-day check-in.
+          We&apos;ll email you tomorrow with your first nudge, then ramp down
+          (day 1, 2, 4, 7, 14, 21, 30, 45, 60, 90) so the early momentum
+          actually happens.
           {wantsPremium &&
             " You also signaled interest in Premium — we'll reach out personally when it opens."}
         </p>
@@ -1679,9 +1728,10 @@ function PostResultCTA() {
         These are starting points. The work is in the next 90 days.
       </h2>
       <p className="mt-2 text-sm text-ink-200/80 dark:text-ink-200/70">
-        Drop your email and we&apos;ll send check-ins at day 7, 30, and 90 — so
-        you actually do the actions, not just read them. We&apos;ll also
-        re-evaluate your plan as your situation changes.
+        Drop your email and we&apos;ll check in 10 times over the next 3
+        months — front-loaded at days 1, 2, 4, 7, then weekly to day 30, then
+        every 15 days to day 90. The cadence is designed so the first actions
+        happen before motivation fades.
       </p>
 
       <form onSubmit={submit} className="mt-4 flex flex-col gap-3">
