@@ -4,11 +4,17 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 /**
- * Step beta — the actual recommendation pipeline (form → API → result).
+ * Step beta — 3-step onboarding form on top of the /api/recommend pipeline.
  *
- * Lives at /beta. Marketing landing at / talks about the product;
- * users who want to try the working pipeline come here.
+ * Step 1 — Where you are (stage, field, skills, interests)
+ * Step 2 — Your background (studies, past positions, languages)
+ * Step 3 — What you're after (salary, location, priority, dream, dilemma)
+ *
+ * State stays in this component across steps; nothing persists across reloads
+ * yet (no localStorage to keep the v1 minimal). Submit POSTs to /api/recommend.
  */
+
+/* ─── Domain types (mirror lib/ai/types.ts) ───────────────────── */
 
 type Stage =
   | "university_student"
@@ -17,7 +23,7 @@ type Stage =
   | "3_7y"
   | "7_plus";
 
-type Field =
+type FieldEnum =
   | "computer_science"
   | "engineering"
   | "business"
@@ -31,7 +37,51 @@ type Field =
   | "medicine"
   | "other";
 
-type Locale = "en" | "it";
+type DegreeLevel =
+  | "high_school"
+  | "bachelor"
+  | "master"
+  | "msc"
+  | "mba"
+  | "phd"
+  | "postdoc"
+  | "bootcamp"
+  | "self_taught"
+  | "other";
+
+interface Study {
+  level: DegreeLevel;
+  field: string;
+  institution?: string;
+}
+
+type CompanyStage =
+  | "startup_pre_seed"
+  | "startup_seed_a"
+  | "startup_b_plus"
+  | "scaleup"
+  | "corporate"
+  | "public_sector"
+  | "academia"
+  | "freelance"
+  | "other";
+
+interface PastPosition {
+  title: string;
+  companyStage: CompanyStage;
+  durationMonths: number;
+  description?: string;
+}
+
+type LanguageProficiency = "native" | "fluent" | "professional" | "conversational";
+
+interface LanguageRow {
+  language: string;
+  proficiency: LanguageProficiency;
+}
+
+type Currency = "EUR" | "GBP" | "USD";
+type PriorityValue = "position" | "money" | "location";
 
 interface Recommendation {
   title: string;
@@ -61,6 +111,8 @@ interface ApiResponse {
   };
 }
 
+/* ─── Option lists ─────────────────────────────────────────────── */
+
 const STAGE_OPTIONS: Array<{ value: Stage; label: string }> = [
   { value: "university_student", label: "University student" },
   { value: "recent_grad", label: "Recent graduate" },
@@ -69,7 +121,7 @@ const STAGE_OPTIONS: Array<{ value: Stage; label: string }> = [
   { value: "7_plus", label: "7+ years experience" },
 ];
 
-const FIELD_OPTIONS: Array<{ value: Field; label: string }> = [
+const FIELD_OPTIONS: Array<{ value: FieldEnum; label: string }> = [
   { value: "computer_science", label: "Computer Science / Software" },
   { value: "engineering", label: "Engineering" },
   { value: "business", label: "Business" },
@@ -82,6 +134,52 @@ const FIELD_OPTIONS: Array<{ value: Field; label: string }> = [
   { value: "law", label: "Law" },
   { value: "medicine", label: "Medicine" },
   { value: "other", label: "Other" },
+];
+
+const DEGREE_OPTIONS: Array<{ value: DegreeLevel; label: string }> = [
+  { value: "high_school", label: "High School" },
+  { value: "bachelor", label: "Bachelor's (BA / BSc)" },
+  { value: "master", label: "Master's (MA)" },
+  { value: "msc", label: "MSc" },
+  { value: "mba", label: "MBA" },
+  { value: "phd", label: "PhD" },
+  { value: "postdoc", label: "Postdoc" },
+  { value: "bootcamp", label: "Bootcamp" },
+  { value: "self_taught", label: "Self-taught" },
+  { value: "other", label: "Other" },
+];
+
+const COMPANY_STAGE_OPTIONS: Array<{ value: CompanyStage; label: string }> = [
+  { value: "startup_pre_seed", label: "Startup (pre-seed)" },
+  { value: "startup_seed_a", label: "Startup (seed / Series A)" },
+  { value: "startup_b_plus", label: "Startup (Series B+)" },
+  { value: "scaleup", label: "Scale-up" },
+  { value: "corporate", label: "Corporate" },
+  { value: "public_sector", label: "Public sector" },
+  { value: "academia", label: "Academia" },
+  { value: "freelance", label: "Freelance / self-employed" },
+  { value: "other", label: "Other" },
+];
+
+const PROFICIENCY_OPTIONS: Array<{ value: LanguageProficiency; label: string }> = [
+  { value: "native", label: "Native" },
+  { value: "fluent", label: "Fluent" },
+  { value: "professional", label: "Professional" },
+  { value: "conversational", label: "Conversational" },
+];
+
+const COMMON_LANGUAGES = [
+  "English",
+  "Italian",
+  "Spanish",
+  "French",
+  "German",
+  "Portuguese",
+  "Mandarin",
+  "Arabic",
+  "Russian",
+  "Dutch",
+  "Polish",
 ];
 
 const SKILL_SUGGESTIONS = [
@@ -117,8 +215,6 @@ const SKILL_SUGGESTIONS = [
   "Legal research",
   "Lab research",
   "Scientific writing",
-  "Italian business culture",
-  "English business writing",
 ];
 
 const INTEREST_SUGGESTIONS = [
@@ -158,21 +254,50 @@ const LOADING_MESSAGES = [
 
 const MAX_SKILLS = 8;
 const MAX_INTERESTS = 5;
+const MAX_STUDIES = 5;
+const MAX_PAST_POSITIONS = 5;
+const MAX_LANGUAGES = 6;
+
+/* ─── Page component ──────────────────────────────────────────── */
 
 export default function BetaPage() {
   const [phase, setPhase] = useState<"form" | "loading" | "result" | "error">(
     "form",
   );
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+
+  // Step 1
   const [stage, setStage] = useState<Stage>("0_3y");
-  const [field, setField] = useState<Field>("computer_science");
+  const [fieldVal, setFieldVal] = useState<FieldEnum>("computer_science");
   const [skills, setSkills] = useState<string[]>([]);
   const [interests, setInterests] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState("");
   const [interestInput, setInterestInput] = useState("");
+
+  // Step 2
+  const [studies, setStudies] = useState<Study[]>([
+    { level: "bachelor", field: "" },
+  ]);
+  const [pastPositions, setPastPositions] = useState<PastPosition[]>([]);
+  const [languages, setLanguages] = useState<LanguageRow[]>([
+    { language: "English", proficiency: "fluent" },
+  ]);
+
+  // Step 3
+  const [salaryNotPriority, setSalaryNotPriority] = useState(true);
+  const [salaryMin, setSalaryMin] = useState("");
+  const [salaryCurrency, setSalaryCurrency] = useState<Currency>("EUR");
+  const [locationPreferred, setLocationPreferred] = useState("");
+  const [openToRemote, setOpenToRemote] = useState(true);
+  const [openToRelocation, setOpenToRelocation] = useState(false);
+  const [priorityFirst, setPriorityFirst] = useState<PriorityValue>("position");
+  const [prioritySecond, setPrioritySecond] = useState<PriorityValue>("money");
+  const [priorityThird, setPriorityThird] = useState<PriorityValue>("location");
+  const [futureSelf, setFutureSelf] = useState("");
   const [dilemma, setDilemma] = useState("");
-  const [locale] = useState<Locale>("en");
-  const [result, setResult] = useState<ApiResponse | null>(null);
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [result, setResult] = useState<ApiResponse | null>(null);
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
   const [elapsedSec, setElapsedSec] = useState(0);
 
@@ -185,30 +310,29 @@ export default function BetaPage() {
     return () => clearInterval(t);
   }, [phase]);
 
+  /* ─ Step 1 helpers ─ */
   function toggleSkill(s: string) {
     setErrorMsg(null);
     setSkills((current) => {
       if (current.includes(s)) return current.filter((x) => x !== s);
       if (current.length >= MAX_SKILLS) {
-        setErrorMsg(`Max ${MAX_SKILLS} skills. Remove one to add another.`);
+        setErrorMsg(`Max ${MAX_SKILLS} skills.`);
         return current;
       }
       return [...current, s];
     });
   }
-
   function toggleInterest(s: string) {
     setErrorMsg(null);
     setInterests((current) => {
       if (current.includes(s)) return current.filter((x) => x !== s);
       if (current.length >= MAX_INTERESTS) {
-        setErrorMsg(`Max ${MAX_INTERESTS} interests. Remove one to add another.`);
+        setErrorMsg(`Max ${MAX_INTERESTS} interests.`);
         return current;
       }
       return [...current, s];
     });
   }
-
   function addCustomSkill() {
     const v = skillInput.trim();
     if (!v) return;
@@ -217,14 +341,12 @@ export default function BetaPage() {
       return;
     }
     if (skills.length >= MAX_SKILLS) {
-      setErrorMsg(`Max ${MAX_SKILLS} skills. Remove one to add another.`);
+      setErrorMsg(`Max ${MAX_SKILLS} skills.`);
       return;
     }
     setSkills((s) => [...s, v]);
     setSkillInput("");
-    setErrorMsg(null);
   }
-
   function addCustomInterest() {
     const v = interestInput.trim();
     if (!v) return;
@@ -233,28 +355,143 @@ export default function BetaPage() {
       return;
     }
     if (interests.length >= MAX_INTERESTS) {
-      setErrorMsg(`Max ${MAX_INTERESTS} interests. Remove one to add another.`);
+      setErrorMsg(`Max ${MAX_INTERESTS} interests.`);
       return;
     }
     setInterests((s) => [...s, v]);
     setInterestInput("");
-    setErrorMsg(null);
   }
 
-  const isValid = skills.length >= 1 && interests.length >= 1;
+  /* ─ Step 2 helpers ─ */
+  function updateStudy(i: number, patch: Partial<Study>) {
+    setStudies((s) => s.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
+  }
+  function removeStudy(i: number) {
+    setStudies((s) => s.filter((_, idx) => idx !== i));
+  }
+  function addStudy() {
+    if (studies.length >= MAX_STUDIES) return;
+    setStudies((s) => [...s, { level: "master", field: "" }]);
+  }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function updatePosition(i: number, patch: Partial<PastPosition>) {
+    setPastPositions((s) =>
+      s.map((row, idx) => (idx === i ? { ...row, ...patch } : row)),
+    );
+  }
+  function removePosition(i: number) {
+    setPastPositions((s) => s.filter((_, idx) => idx !== i));
+  }
+  function addPosition() {
+    if (pastPositions.length >= MAX_PAST_POSITIONS) return;
+    setPastPositions((s) => [
+      ...s,
+      { title: "", companyStage: "scaleup", durationMonths: 12 },
+    ]);
+  }
+
+  function updateLanguage(i: number, patch: Partial<LanguageRow>) {
+    setLanguages((s) =>
+      s.map((row, idx) => (idx === i ? { ...row, ...patch } : row)),
+    );
+  }
+  function removeLanguage(i: number) {
+    setLanguages((s) => s.filter((_, idx) => idx !== i));
+  }
+  function addLanguage() {
+    if (languages.length >= MAX_LANGUAGES) return;
+    setLanguages((s) => [...s, { language: "", proficiency: "professional" }]);
+  }
+
+  /* ─ Validation per step ─ */
+  function validateStep1(): string | null {
+    if (skills.length === 0) return "Pick at least 1 skill.";
+    if (interests.length === 0) return "Pick at least 1 interest.";
+    return null;
+  }
+  function validateStep2(): string | null {
+    if (studies.length === 0) return "Add at least 1 study entry.";
+    for (const s of studies) {
+      if (!s.field.trim()) return "Every study needs a field (e.g. Computer Science).";
+    }
+    if (languages.length === 0) return "Add at least 1 language.";
+    for (const l of languages) {
+      if (!l.language.trim()) return "Every language row needs a language name.";
+    }
+    return null;
+  }
+  function validateStep3(): string | null {
+    const set = new Set([priorityFirst, prioritySecond, priorityThird]);
+    if (set.size !== 3) return "Each priority must be different (position, money, location).";
+    if (!salaryNotPriority && salaryMin && Number(salaryMin) < 0) {
+      return "Salary minimum can't be negative.";
+    }
+    return null;
+  }
+
+  /* ─ Step navigation ─ */
+  function goNext() {
     setErrorMsg(null);
+    if (step === 1) {
+      const err = validateStep1();
+      if (err) {
+        setErrorMsg(err);
+        return;
+      }
+      setStep(2);
+    } else if (step === 2) {
+      const err = validateStep2();
+      if (err) {
+        setErrorMsg(err);
+        return;
+      }
+      setStep(3);
+    }
+  }
+  function goBack() {
+    setErrorMsg(null);
+    if (step === 2) setStep(1);
+    else if (step === 3) setStep(2);
+  }
 
-    if (skills.length === 0) {
-      setErrorMsg("Pick at least 1 skill (or add a custom one).");
+  /* ─ Submit ─ */
+  async function handleSubmit() {
+    setErrorMsg(null);
+    const err = validateStep3();
+    if (err) {
+      setErrorMsg(err);
       return;
     }
-    if (interests.length === 0) {
-      setErrorMsg("Pick at least 1 interest (or add a custom one).");
-      return;
-    }
+
+    const payload = {
+      stage,
+      field: fieldVal,
+      skills,
+      interests,
+      studies,
+      pastPositions,
+      languages,
+      salary: {
+        notAPriority: salaryNotPriority,
+        minAcceptable: salaryNotPriority || !salaryMin
+          ? undefined
+          : Number(salaryMin),
+        currency: salaryCurrency,
+      },
+      location: {
+        preferred: locationPreferred.trim() || undefined,
+        openToRemote,
+        openToRelocation,
+      },
+      priorityOrder: {
+        first: priorityFirst,
+        second: prioritySecond,
+        third: priorityThird,
+      },
+      futureSelf: futureSelf.trim() || undefined,
+      dilemma: dilemma.trim() || undefined,
+      locale: "en" as const,
+    };
 
     setPhase("loading");
     setLoadingMsgIdx(0);
@@ -264,16 +501,8 @@ export default function BetaPage() {
       const res = await fetch("/api/recommend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          stage,
-          field,
-          skills,
-          interests,
-          dilemma: dilemma.trim() || undefined,
-          locale,
-        }),
+        body: JSON.stringify(payload),
       });
-
       if (!res.ok) {
         const errBody = (await res.json().catch(() => ({}))) as {
           message?: string;
@@ -281,7 +510,6 @@ export default function BetaPage() {
         };
         throw new Error(errBody.message ?? errBody.error ?? `API ${res.status}`);
       }
-
       const data = (await res.json()) as ApiResponse;
       setResult(data);
       setPhase("result");
@@ -294,13 +522,15 @@ export default function BetaPage() {
 
   function handleReset() {
     setPhase("form");
+    setStep(1);
     setResult(null);
     setErrorMsg(null);
   }
 
+  /* ─ Render ─ */
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col px-6 py-10 md:py-14">
-      <header className="mb-10 flex items-center justify-between">
+      <header className="mb-8 flex items-center justify-between">
         <Link
           href="/"
           className="text-sm font-medium tracking-wide text-ink-200/80 transition hover:opacity-70 dark:text-ink-200/60"
@@ -313,27 +543,107 @@ export default function BetaPage() {
       </header>
 
       {phase === "form" && (
-        <FormView
-          stage={stage}
-          setStage={setStage}
-          field={field}
-          setField={setField}
-          skills={skills}
-          interests={interests}
-          skillInput={skillInput}
-          setSkillInput={setSkillInput}
-          interestInput={interestInput}
-          setInterestInput={setInterestInput}
-          toggleSkill={toggleSkill}
-          toggleInterest={toggleInterest}
-          addCustomSkill={addCustomSkill}
-          addCustomInterest={addCustomInterest}
-          dilemma={dilemma}
-          setDilemma={setDilemma}
-          errorMsg={errorMsg}
-          isValid={isValid}
-          onSubmit={handleSubmit}
-        />
+        <>
+          <ProgressBar step={step} />
+
+          {errorMsg && (
+            <div className="mb-6 rounded-md border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+              {errorMsg}
+            </div>
+          )}
+
+          {step === 1 && (
+            <Step1
+              stage={stage}
+              setStage={setStage}
+              fieldVal={fieldVal}
+              setFieldVal={setFieldVal}
+              skills={skills}
+              interests={interests}
+              skillInput={skillInput}
+              setSkillInput={setSkillInput}
+              interestInput={interestInput}
+              setInterestInput={setInterestInput}
+              toggleSkill={toggleSkill}
+              toggleInterest={toggleInterest}
+              addCustomSkill={addCustomSkill}
+              addCustomInterest={addCustomInterest}
+            />
+          )}
+
+          {step === 2 && (
+            <Step2
+              studies={studies}
+              updateStudy={updateStudy}
+              removeStudy={removeStudy}
+              addStudy={addStudy}
+              pastPositions={pastPositions}
+              updatePosition={updatePosition}
+              removePosition={removePosition}
+              addPosition={addPosition}
+              languages={languages}
+              updateLanguage={updateLanguage}
+              removeLanguage={removeLanguage}
+              addLanguage={addLanguage}
+            />
+          )}
+
+          {step === 3 && (
+            <Step3
+              salaryNotPriority={salaryNotPriority}
+              setSalaryNotPriority={setSalaryNotPriority}
+              salaryMin={salaryMin}
+              setSalaryMin={setSalaryMin}
+              salaryCurrency={salaryCurrency}
+              setSalaryCurrency={setSalaryCurrency}
+              locationPreferred={locationPreferred}
+              setLocationPreferred={setLocationPreferred}
+              openToRemote={openToRemote}
+              setOpenToRemote={setOpenToRemote}
+              openToRelocation={openToRelocation}
+              setOpenToRelocation={setOpenToRelocation}
+              priorityFirst={priorityFirst}
+              setPriorityFirst={setPriorityFirst}
+              prioritySecond={prioritySecond}
+              setPrioritySecond={setPrioritySecond}
+              priorityThird={priorityThird}
+              setPriorityThird={setPriorityThird}
+              futureSelf={futureSelf}
+              setFutureSelf={setFutureSelf}
+              dilemma={dilemma}
+              setDilemma={setDilemma}
+            />
+          )}
+
+          <div className="mt-10 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={goBack}
+              disabled={step === 1}
+              className="rounded-full border border-ink-200/30 px-5 py-2.5 text-sm transition hover:border-ink-200/60 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              ← Back
+            </button>
+
+            {step < 3 ? (
+              <button
+                type="button"
+                onClick={goNext}
+                className="rounded-full bg-ink-950 px-7 py-3 text-sm font-medium text-ink-50 transition hover:opacity-80 dark:bg-ink-50 dark:text-ink-950"
+              >
+                Continue →
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                className="rounded-full bg-ink-950 px-7 py-3 text-sm font-medium text-ink-50 transition hover:opacity-80 dark:bg-ink-50 dark:text-ink-950"
+              >
+                Get my next steps
+              </button>
+            )}
+          </div>
+        </>
       )}
 
       {phase === "loading" && (
@@ -359,13 +669,38 @@ export default function BetaPage() {
   );
 }
 
-/* ─── Form view ──────────────────────────────────────────────────── */
+/* ─── Progress bar ─────────────────────────────────────────────── */
 
-interface FormProps {
+function ProgressBar({ step }: { step: 1 | 2 | 3 }) {
+  const labels = ["Where you are", "Your background", "What you're after"];
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-2">
+        {[1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className={`h-1 flex-1 rounded-full transition ${
+              i <= step
+                ? "bg-ink-950 dark:bg-ink-50"
+                : "bg-ink-200/20"
+            }`}
+          />
+        ))}
+      </div>
+      <p className="mt-2 text-xs uppercase tracking-wider text-ink-200/60">
+        Step {step} of 3 · {labels[step - 1]}
+      </p>
+    </div>
+  );
+}
+
+/* ─── Step 1 ──────────────────────────────────────────────────── */
+
+interface Step1Props {
   stage: Stage;
   setStage: (s: Stage) => void;
-  field: Field;
-  setField: (f: Field) => void;
+  fieldVal: FieldEnum;
+  setFieldVal: (f: FieldEnum) => void;
   skills: string[];
   interests: string[];
   skillInput: string;
@@ -376,122 +711,522 @@ interface FormProps {
   toggleInterest: (s: string) => void;
   addCustomSkill: () => void;
   addCustomInterest: () => void;
-  dilemma: string;
-  setDilemma: (s: string) => void;
-  errorMsg: string | null;
-  isValid: boolean;
-  onSubmit: (e: React.FormEvent) => void;
 }
 
-function FormView(p: FormProps) {
+function Step1(p: Step1Props) {
   return (
-    <section className="flex flex-col gap-8">
+    <section className="flex flex-col gap-7">
       <div>
         <h1 className="text-3xl font-semibold leading-tight tracking-tight md:text-4xl">
-          Tell us where you are.
+          Where you are now
         </h1>
-        <p className="mt-3 max-w-xl text-base text-ink-200/90 dark:text-ink-200/70">
-          Two minutes. We&apos;ll give you 3–5 ranked next moves with
-          concrete 90-day actions, grounded in real career patterns.
+        <p className="mt-3 text-base text-ink-200/90 dark:text-ink-200/70">
+          Your current state. Skills you have, interests you can&apos;t shake.
         </p>
       </div>
 
-      {p.errorMsg && (
-        <div className="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
-          {p.errorMsg}
-        </div>
-      )}
-
-      <form onSubmit={p.onSubmit} className="flex flex-col gap-7">
-        <Field label="Where are you in your career?">
-          <select
-            value={p.stage}
-            onChange={(e) => p.setStage(e.target.value as Stage)}
-            className="w-full rounded-md border border-ink-200/40 bg-white px-3 py-2.5 text-base text-ink-950 focus:border-accent focus:outline-none"
-          >
-            {STAGE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="What's your field?">
-          <select
-            value={p.field}
-            onChange={(e) => p.setField(e.target.value as Field)}
-            className="w-full rounded-md border border-ink-200/40 bg-white px-3 py-2.5 text-base text-ink-950 focus:border-accent focus:outline-none"
-          >
-            {FIELD_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <ChipPicker
-          label="What skills do you have today?"
-          hint={`Pick up to ${MAX_SKILLS}. Click to select. Add your own if missing.`}
-          counterText={`${p.skills.length}/${MAX_SKILLS}`}
-          suggestions={SKILL_SUGGESTIONS}
-          selected={p.skills}
-          onToggle={p.toggleSkill}
-          inputValue={p.skillInput}
-          onInputChange={p.setSkillInput}
-          onAddCustom={p.addCustomSkill}
-          customPlaceholder="Add another skill…"
-        />
-
-        <ChipPicker
-          label="What are you drawn to?"
-          hint={`Pick up to ${MAX_INTERESTS}. Click to select. Add your own if missing.`}
-          counterText={`${p.interests.length}/${MAX_INTERESTS}`}
-          suggestions={INTEREST_SUGGESTIONS}
-          selected={p.interests}
-          onToggle={p.toggleInterest}
-          inputValue={p.interestInput}
-          onInputChange={p.setInterestInput}
-          onAddCustom={p.addCustomInterest}
-          customPlaceholder="Add another interest…"
-        />
-
-        <Field
-          label="What career question can't you stop thinking about? (optional)"
-          hint="Be specific. The clearer the dilemma, the sharper the recommendation."
+      <FieldWrap label="Where are you in your career?">
+        <select
+          value={p.stage}
+          onChange={(e) => p.setStage(e.target.value as Stage)}
+          className="form-select"
         >
-          <textarea
-            value={p.dilemma}
-            onChange={(e) => p.setDilemma(e.target.value)}
-            placeholder="e.g. Junior backend engineer at a Series B fintech, 18 months in. I want to be tech lead in 18-24 months — what do I actually do?"
-            rows={4}
-            maxLength={500}
-            className="w-full rounded-md border border-ink-200/40 bg-white px-3 py-2.5 text-base text-ink-950 focus:border-accent focus:outline-none"
-          />
-          <span className="self-end text-xs text-ink-200/50">
-            {p.dilemma.length}/500
-          </span>
-        </Field>
+          {STAGE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </FieldWrap>
 
-        <button
-          type="submit"
-          disabled={!p.isValid}
-          className="self-start rounded-full bg-ink-950 px-7 py-3 text-sm font-medium text-ink-50 transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-ink-50 dark:text-ink-950"
+      <FieldWrap label="What's your field?">
+        <select
+          value={p.fieldVal}
+          onChange={(e) => p.setFieldVal(e.target.value as FieldEnum)}
+          className="form-select"
         >
-          Get my next steps
-        </button>
-        {!p.isValid && (
-          <span className="-mt-4 text-xs text-ink-200/60">
-            Pick at least 1 skill and 1 interest to continue.
-          </span>
-        )}
-      </form>
+          {FIELD_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </FieldWrap>
+
+      <ChipPicker
+        label="What skills do you have today?"
+        hint={`Pick up to ${MAX_SKILLS}. Click to toggle. Add your own if missing.`}
+        counterText={`${p.skills.length}/${MAX_SKILLS}`}
+        suggestions={SKILL_SUGGESTIONS}
+        selected={p.skills}
+        onToggle={p.toggleSkill}
+        inputValue={p.skillInput}
+        onInputChange={p.setSkillInput}
+        onAddCustom={p.addCustomSkill}
+        customPlaceholder="Add another skill…"
+      />
+
+      <ChipPicker
+        label="What are you drawn to?"
+        hint={`Pick up to ${MAX_INTERESTS}.`}
+        counterText={`${p.interests.length}/${MAX_INTERESTS}`}
+        suggestions={INTEREST_SUGGESTIONS}
+        selected={p.interests}
+        onToggle={p.toggleInterest}
+        inputValue={p.interestInput}
+        onInputChange={p.setInterestInput}
+        onAddCustom={p.addCustomInterest}
+        customPlaceholder="Add another interest…"
+      />
     </section>
   );
 }
 
-/* ─── Chip picker ─────────────────────────────────────────────────── */
+/* ─── Step 2 ──────────────────────────────────────────────────── */
+
+interface Step2Props {
+  studies: Study[];
+  updateStudy: (i: number, patch: Partial<Study>) => void;
+  removeStudy: (i: number) => void;
+  addStudy: () => void;
+  pastPositions: PastPosition[];
+  updatePosition: (i: number, patch: Partial<PastPosition>) => void;
+  removePosition: (i: number) => void;
+  addPosition: () => void;
+  languages: LanguageRow[];
+  updateLanguage: (i: number, patch: Partial<LanguageRow>) => void;
+  removeLanguage: (i: number) => void;
+  addLanguage: () => void;
+}
+
+function Step2(p: Step2Props) {
+  return (
+    <section className="flex flex-col gap-8">
+      <div>
+        <h1 className="text-3xl font-semibold leading-tight tracking-tight md:text-4xl">
+          Your background
+        </h1>
+        <p className="mt-3 text-base text-ink-200/90 dark:text-ink-200/70">
+          Education, work history, languages. The signals that distinguish
+          your profile from someone with similar skills.
+        </p>
+      </div>
+
+      {/* Studies */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Studies</span>
+          <span className="text-xs text-ink-200/60">
+            {p.studies.length}/{MAX_STUDIES}
+          </span>
+        </div>
+        <span className="text-xs text-ink-200/60 dark:text-ink-200/50">
+          Highest first. Add multiple if relevant.
+        </span>
+
+        {p.studies.map((s, i) => (
+          <div
+            key={i}
+            className="flex flex-col gap-2 rounded-md border border-ink-200/20 p-3 sm:flex-row sm:items-center"
+          >
+            <select
+              value={s.level}
+              onChange={(e) =>
+                p.updateStudy(i, { level: e.target.value as DegreeLevel })
+              }
+              className="form-select sm:w-44"
+            >
+              {DEGREE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={s.field}
+              onChange={(e) => p.updateStudy(i, { field: e.target.value })}
+              placeholder="Field of study (e.g. Computer Science)"
+              className="form-input flex-1"
+              maxLength={120}
+            />
+            <input
+              type="text"
+              value={s.institution ?? ""}
+              onChange={(e) =>
+                p.updateStudy(i, { institution: e.target.value || undefined })
+              }
+              placeholder="Institution (optional)"
+              className="form-input flex-1"
+              maxLength={140}
+            />
+            {p.studies.length > 1 && (
+              <button
+                type="button"
+                onClick={() => p.removeStudy(i)}
+                className="self-end text-xs text-red-500 hover:underline sm:self-center"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        ))}
+
+        {p.studies.length < MAX_STUDIES && (
+          <button
+            type="button"
+            onClick={p.addStudy}
+            className="self-start text-sm text-ink-200/70 underline hover:opacity-100"
+          >
+            + Add another study
+          </button>
+        )}
+      </div>
+
+      {/* Past positions */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Past positions (optional)</span>
+          <span className="text-xs text-ink-200/60">
+            {p.pastPositions.length}/{MAX_PAST_POSITIONS}
+          </span>
+        </div>
+        <span className="text-xs text-ink-200/60 dark:text-ink-200/50">
+          Most recent first. Useful especially if you have 1+ years of work
+          experience.
+        </span>
+
+        {p.pastPositions.map((pos, i) => (
+          <div
+            key={i}
+            className="flex flex-col gap-2 rounded-md border border-ink-200/20 p-3"
+          >
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="text"
+                value={pos.title}
+                onChange={(e) => p.updatePosition(i, { title: e.target.value })}
+                placeholder="Job title (e.g. Junior Backend Engineer)"
+                className="form-input flex-1"
+                maxLength={120}
+              />
+              <select
+                value={pos.companyStage}
+                onChange={(e) =>
+                  p.updatePosition(i, {
+                    companyStage: e.target.value as CompanyStage,
+                  })
+                }
+                className="form-select sm:w-52"
+              >
+                {COMPANY_STAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={pos.durationMonths}
+                onChange={(e) =>
+                  p.updatePosition(i, {
+                    durationMonths: Math.max(1, Number(e.target.value)),
+                  })
+                }
+                placeholder="Months"
+                min={1}
+                max={600}
+                className="form-input w-full sm:w-28"
+              />
+            </div>
+            <input
+              type="text"
+              value={pos.description ?? ""}
+              onChange={(e) =>
+                p.updatePosition(i, { description: e.target.value || undefined })
+              }
+              placeholder="What you did there (one line, optional)"
+              className="form-input"
+              maxLength={280}
+            />
+            <button
+              type="button"
+              onClick={() => p.removePosition(i)}
+              className="self-end text-xs text-red-500 hover:underline"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+
+        {p.pastPositions.length < MAX_PAST_POSITIONS && (
+          <button
+            type="button"
+            onClick={p.addPosition}
+            className="self-start text-sm text-ink-200/70 underline hover:opacity-100"
+          >
+            + Add a past position
+          </button>
+        )}
+      </div>
+
+      {/* Languages */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Languages</span>
+          <span className="text-xs text-ink-200/60">
+            {p.languages.length}/{MAX_LANGUAGES}
+          </span>
+        </div>
+        <span className="text-xs text-ink-200/60 dark:text-ink-200/50">
+          Critical for relocation/remote signals. Pick from common ones or
+          type any other.
+        </span>
+
+        {p.languages.map((l, i) => (
+          <div
+            key={i}
+            className="flex flex-col gap-2 rounded-md border border-ink-200/20 p-3 sm:flex-row sm:items-center"
+          >
+            <input
+              type="text"
+              list={`lang-suggestions-${i}`}
+              value={l.language}
+              onChange={(e) => p.updateLanguage(i, { language: e.target.value })}
+              placeholder="Language (e.g. English, Italian)"
+              className="form-input flex-1"
+              maxLength={40}
+            />
+            <datalist id={`lang-suggestions-${i}`}>
+              {COMMON_LANGUAGES.map((lang) => (
+                <option key={lang} value={lang} />
+              ))}
+            </datalist>
+            <select
+              value={l.proficiency}
+              onChange={(e) =>
+                p.updateLanguage(i, {
+                  proficiency: e.target.value as LanguageProficiency,
+                })
+              }
+              className="form-select sm:w-44"
+            >
+              {PROFICIENCY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            {p.languages.length > 1 && (
+              <button
+                type="button"
+                onClick={() => p.removeLanguage(i)}
+                className="self-end text-xs text-red-500 hover:underline sm:self-center"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        ))}
+
+        {p.languages.length < MAX_LANGUAGES && (
+          <button
+            type="button"
+            onClick={p.addLanguage}
+            className="self-start text-sm text-ink-200/70 underline hover:opacity-100"
+          >
+            + Add another language
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* ─── Step 3 ──────────────────────────────────────────────────── */
+
+interface Step3Props {
+  salaryNotPriority: boolean;
+  setSalaryNotPriority: (b: boolean) => void;
+  salaryMin: string;
+  setSalaryMin: (s: string) => void;
+  salaryCurrency: Currency;
+  setSalaryCurrency: (c: Currency) => void;
+  locationPreferred: string;
+  setLocationPreferred: (s: string) => void;
+  openToRemote: boolean;
+  setOpenToRemote: (b: boolean) => void;
+  openToRelocation: boolean;
+  setOpenToRelocation: (b: boolean) => void;
+  priorityFirst: PriorityValue;
+  setPriorityFirst: (p: PriorityValue) => void;
+  prioritySecond: PriorityValue;
+  setPrioritySecond: (p: PriorityValue) => void;
+  priorityThird: PriorityValue;
+  setPriorityThird: (p: PriorityValue) => void;
+  futureSelf: string;
+  setFutureSelf: (s: string) => void;
+  dilemma: string;
+  setDilemma: (s: string) => void;
+}
+
+const PRIORITY_LABELS: Record<PriorityValue, string> = {
+  position: "Position / role",
+  money: "Money / compensation",
+  location: "Location / lifestyle",
+};
+
+function Step3(p: Step3Props) {
+  return (
+    <section className="flex flex-col gap-8">
+      <div>
+        <h1 className="text-3xl font-semibold leading-tight tracking-tight md:text-4xl">
+          What you&apos;re after
+        </h1>
+        <p className="mt-3 text-base text-ink-200/90 dark:text-ink-200/70">
+          Your goals, constraints, and the dream you&apos;re working toward.
+        </p>
+      </div>
+
+      {/* Salary */}
+      <FieldWrap label="Salary expectations" hint="What's the floor you'd accept for the right role?">
+        <div className="flex flex-col gap-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={p.salaryNotPriority}
+              onChange={(e) => p.setSalaryNotPriority(e.target.checked)}
+            />
+            <span>Salary is not a top priority right now</span>
+          </label>
+          {!p.salaryNotPriority && (
+            <div className="flex gap-2">
+              <input
+                type="number"
+                value={p.salaryMin}
+                onChange={(e) => p.setSalaryMin(e.target.value)}
+                placeholder="Minimum acceptable annual salary"
+                min={0}
+                className="form-input flex-1"
+              />
+              <select
+                value={p.salaryCurrency}
+                onChange={(e) => p.setSalaryCurrency(e.target.value as Currency)}
+                className="form-select w-24"
+              >
+                <option value="EUR">EUR €</option>
+                <option value="GBP">GBP £</option>
+                <option value="USD">USD $</option>
+              </select>
+            </div>
+          )}
+        </div>
+      </FieldWrap>
+
+      {/* Location */}
+      <FieldWrap label="Location preferences" hint="Cities, countries, or just &quot;EU remote&quot; — be honest.">
+        <div className="flex flex-col gap-2">
+          <input
+            type="text"
+            value={p.locationPreferred}
+            onChange={(e) => p.setLocationPreferred(e.target.value)}
+            placeholder="e.g. Milan, London, Berlin, or remote EU"
+            maxLength={200}
+            className="form-input"
+          />
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={p.openToRemote}
+              onChange={(e) => p.setOpenToRemote(e.target.checked)}
+            />
+            <span>Open to remote work</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={p.openToRelocation}
+              onChange={(e) => p.setOpenToRelocation(e.target.checked)}
+            />
+            <span>Open to relocation</span>
+          </label>
+        </div>
+      </FieldWrap>
+
+      {/* Priority order */}
+      <FieldWrap label="What matters most?" hint="Rank position, money, and location. We weight recommendations against this.">
+        <div className="flex flex-col gap-2">
+          {(["First", "Second", "Third"] as const).map((label, idx) => {
+            const value =
+              idx === 0
+                ? p.priorityFirst
+                : idx === 1
+                  ? p.prioritySecond
+                  : p.priorityThird;
+            const setter =
+              idx === 0
+                ? p.setPriorityFirst
+                : idx === 1
+                  ? p.setPrioritySecond
+                  : p.setPriorityThird;
+            return (
+              <div key={idx} className="flex items-center gap-3">
+                <span className="w-16 text-sm text-ink-200/70">{label}</span>
+                <select
+                  value={value}
+                  onChange={(e) => setter(e.target.value as PriorityValue)}
+                  className="form-select flex-1"
+                >
+                  <option value="position">{PRIORITY_LABELS.position}</option>
+                  <option value="money">{PRIORITY_LABELS.money}</option>
+                  <option value="location">{PRIORITY_LABELS.location}</option>
+                </select>
+              </div>
+            );
+          })}
+        </div>
+      </FieldWrap>
+
+      {/* Future self */}
+      <FieldWrap
+        label="Where do you see yourself in 5 years? (optional)"
+        hint="Be specific — title, comp band, lifestyle, location. The more vivid, the better the recommendation."
+      >
+        <textarea
+          value={p.futureSelf}
+          onChange={(e) => p.setFutureSelf(e.target.value)}
+          placeholder="e.g. Senior PM at a Series C SaaS, ~€100k base + equity, hybrid in Berlin, leading a 4-person squad."
+          rows={3}
+          maxLength={800}
+          className="form-input"
+        />
+        <span className="self-end text-xs text-ink-200/50">
+          {p.futureSelf.length}/800
+        </span>
+      </FieldWrap>
+
+      {/* Dilemma */}
+      <FieldWrap
+        label="What career question can't you stop thinking about? (optional)"
+        hint="Be specific. The clearer the dilemma, the sharper the recommendation."
+      >
+        <textarea
+          value={p.dilemma}
+          onChange={(e) => p.setDilemma(e.target.value)}
+          placeholder="e.g. Junior backend engineer at a Series B fintech, 18 months in. I want to be tech lead in 18-24 months — what do I actually do?"
+          rows={4}
+          maxLength={500}
+          className="form-input"
+        />
+        <span className="self-end text-xs text-ink-200/50">
+          {p.dilemma.length}/500
+        </span>
+      </FieldWrap>
+    </section>
+  );
+}
+
+/* ─── Reusable bits ───────────────────────────────────────────── */
 
 interface ChipPickerProps {
   label: string;
@@ -553,7 +1288,7 @@ function ChipPicker(p: ChipPickerProps) {
             }
           }}
           placeholder={p.customPlaceholder}
-          className="flex-1 rounded-md border border-ink-200/40 bg-white px-3 py-2 text-sm text-ink-950 focus:border-accent focus:outline-none"
+          className="form-input flex-1 text-sm"
         />
         <button
           type="button"
@@ -567,7 +1302,7 @@ function ChipPicker(p: ChipPickerProps) {
   );
 }
 
-function Field({
+function FieldWrap({
   label,
   hint,
   children,
@@ -604,7 +1339,7 @@ function LoadingView({
       />
       <p className="text-lg">{message}</p>
       <p className="text-sm text-ink-200/60 dark:text-ink-200/50">
-        This takes ~60–90 seconds. We&apos;re calling Claude under the hood, no shortcuts.
+        This takes ~10–30 seconds. We&apos;re calling Claude under the hood.
         {elapsedSec > 0 && ` (${elapsedSec}s elapsed)`}
       </p>
     </section>
@@ -754,9 +1489,8 @@ function ErrorView({
       <p className="max-w-md text-sm text-ink-200/70">{message}</p>
       {message.toLowerCase().includes("timeout") && (
         <p className="max-w-md text-xs text-ink-200/50">
-          Heads-up: the beta&apos;s LLM call sometimes exceeds Vercel&apos;s 60s cap.
-          We&apos;re fixing this. Meanwhile, refresh and try again — it works for
-          most queries.
+          Heads-up: if the LLM call exceeds Vercel&apos;s function cap, we time
+          out. Refresh and try again — most queries fit.
         </p>
       )}
       <button

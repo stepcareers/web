@@ -116,13 +116,28 @@ function profileToQueryText(p: {
   field: string;
   skills: string[];
   interests: string[];
+  studies?: Array<{ level: string; field: string }>;
+  pastPositions?: Array<{ title: string; companyStage: string }>;
+  futureSelf?: string;
   dilemma?: string;
 }): string {
+  const studiesText = p.studies?.length
+    ? p.studies.map((s) => `${s.level} in ${s.field}`).join(", ")
+    : "";
+  const positionsText = p.pastPositions?.length
+    ? p.pastPositions
+        .map((pos) => `${pos.title} at ${pos.companyStage}`)
+        .join("; ")
+    : "";
+
   return [
     `Stage: ${p.stage}`,
     `Field: ${p.field}`,
     `Skills: ${p.skills.join(", ")}`,
     `Interests: ${p.interests.join(", ")}`,
+    studiesText && `Education: ${studiesText}`,
+    positionsText && `Past positions: ${positionsText}`,
+    p.futureSelf ? `Future self: ${p.futureSelf}` : "",
     p.dilemma ? `Dilemma: ${p.dilemma}` : "",
   ]
     .filter(Boolean)

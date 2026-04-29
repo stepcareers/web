@@ -3,120 +3,173 @@ import { z } from "zod";
 /**
  * The contract between the LLM and the rest of the app.
  *
- * Every recommendation result must validate against `RecommendResultSchema`.
- * The shape is enforced both in the prompt (we tell Claude exactly this
- * shape) and in code via `generateObject({ schema })`.
- *
  * Char limits are guardrails against runaway output, not stylistic
  * constraints — they're loose enough that good content fits comfortably.
  */
 
+/* ─── Output schemas (LLM must produce this) ─────────────────────── */
+
 export const ConfidenceSchema = z.object({
   level: z.enum(["high", "medium", "low"]),
-  reason: z
-    .string()
-    .min(10, "Confidence reason must be at least 10 chars")
-    .max(500, "Confidence reason must be at most 500 chars"),
+  reason: z.string().min(10).max(500),
 });
 
 export const RecommendationSchema = z.object({
-  /** Action-oriented headline. */
-  title: z
-    .string()
-    .min(8, "Title must be at least 8 chars")
-    .max(140, "Title must be at most 140 chars"),
-
-  /** Why this move matches the user's profile. 1–3 sentences. */
-  rationale: z
-    .string()
-    .min(30, "Rationale must be at least 30 chars")
-    .max(800, "Rationale must be at most 800 chars"),
-
-  /** 3–5 concrete, time-bounded, verb-led actions for the next 90 days. */
-  ninetyDayActions: z
-    .array(
-      z
-        .string()
-        .min(15, "Each action must be at least 15 chars")
-        .max(500, "Each action must be at most 500 chars"),
-    )
-    .min(3, "Need at least 3 actions")
-    .max(5, "Max 5 actions"),
-
-  /** One-to-two sentences on expected state at 12 months. */
-  twelveMonthOutcome: z
-    .string()
-    .min(20, "Outcome must be at least 20 chars")
-    .max(500, "Outcome must be at most 500 chars"),
-
-  /** What similar profiles in the dataset did. Honest counts only. */
-  similarProfilePattern: z
-    .string()
-    .min(30, "Pattern must be at least 30 chars")
-    .max(700, "Pattern must be at most 700 chars"),
-
-  /** Confidence + reason. */
+  title: z.string().min(8).max(140),
+  rationale: z.string().min(30).max(800),
+  ninetyDayActions: z.array(z.string().min(15).max(500)).min(3).max(5),
+  twelveMonthOutcome: z.string().min(20).max(500),
+  similarProfilePattern: z.string().min(30).max(700),
   confidence: ConfidenceSchema,
-
-  /** path_id slugs cited from the retrieved paths. */
-  basedOnPathIds: z
-    .array(z.string().min(3))
-    .min(1, "Must cite at least 1 retrieved path")
-    .max(5, "Max 5 cited paths"),
+  basedOnPathIds: z.array(z.string().min(3)).min(1).max(5),
 });
 
 export const RecommendResultSchema = z.object({
-  /** 3–5 ranked recommendations. */
-  recommendations: z
-    .array(RecommendationSchema)
-    .min(3, "Need at least 3 recommendations")
-    .max(5, "Max 5 recommendations"),
-
-  /** 4–10 sentence paragraph in the senior peer voice. */
-  honestTake: z
-    .string()
-    .min(150, "Honest take must be at least 150 chars")
-    .max(1800, "Honest take must be at most 1800 chars"),
-
-  /** 2–5 sentences listing input gaps that would change the recommendations. */
-  whatWeDontKnow: z
-    .string()
-    .min(40, "What-we-dont-know must be at least 40 chars")
-    .max(900, "What-we-dont-know must be at most 900 chars"),
+  recommendations: z.array(RecommendationSchema).min(3).max(5),
+  honestTake: z.string().min(150).max(1800),
+  whatWeDontKnow: z.string().min(40).max(900),
 });
 
 export type Confidence = z.infer<typeof ConfidenceSchema>;
 export type Recommendation = z.infer<typeof RecommendationSchema>;
 export type RecommendResult = z.infer<typeof RecommendResultSchema>;
 
-/* ─── Input schemas ──────────────────────────────────────────────────── */
+/* ─── Input schemas (form sends this) ────────────────────────────── */
+
+export const StageEnum = z.enum([
+  "university_student",
+  "recent_grad",
+  "0_3y",
+  "3_7y",
+  "7_plus",
+]);
+
+export const FieldEnum = z.enum([
+  "computer_science",
+  "engineering",
+  "business",
+  "economics",
+  "humanities",
+  "social_sciences",
+  "life_sciences",
+  "physical_sciences",
+  "design",
+  "law",
+  "medicine",
+  "other",
+]);
+
+export const DegreeLevelEnum = z.enum([
+  "high_school",
+  "bachelor",
+  "master",
+  "msc",
+  "mba",
+  "phd",
+  "postdoc",
+  "bootcamp",
+  "self_taught",
+  "other",
+]);
+
+export const StudySchema = z.object({
+  level: DegreeLevelEnum,
+  field: z.string().min(2).max(120), // e.g. "Computer Science", "Molecular Biology"
+  institution: z.string().max(140).optional(), // e.g. "Politecnico di Milano"
+});
+
+export const CompanyStageEnum = z.enum([
+  "startup_pre_seed",
+  "startup_seed_a",
+  "startup_b_plus",
+  "scaleup",
+  "corporate",
+  "public_sector",
+  "academia",
+  "freelance",
+  "other",
+]);
+
+export const PastPositionSchema = z.object({
+  title: z.string().min(2).max(120),
+  companyStage: CompanyStageEnum,
+  durationMonths: z.coerce.number().int().min(1).max(600),
+  description: z.string().max(280).optional(),
+});
+
+export const LanguageProficiencyEnum = z.enum([
+  "native",
+  "fluent",
+  "professional",
+  "conversational",
+]);
+
+export const LanguageSchema = z.object({
+  language: z.string().min(2).max(40),
+  proficiency: LanguageProficiencyEnum,
+});
+
+export const CurrencyEnum = z.enum(["EUR", "GBP", "USD"]);
+
+export const SalarySchema = z.object({
+  notAPriority: z.boolean().default(false),
+  minAcceptable: z.coerce.number().int().min(0).max(2_000_000).optional(),
+  currency: CurrencyEnum.default("EUR"),
+});
+
+export const LocationPrefSchema = z.object({
+  preferred: z.string().max(200).optional(), // e.g. "Berlin, Milan, or remote EU"
+  openToRemote: z.boolean().default(false),
+  openToRelocation: z.boolean().default(false),
+});
+
+export const PriorityValueEnum = z.enum(["position", "money", "location"]);
+
+export const PriorityOrderSchema = z
+  .object({
+    first: PriorityValueEnum,
+    second: PriorityValueEnum,
+    third: PriorityValueEnum,
+  })
+  .refine(
+    (v) => new Set([v.first, v.second, v.third]).size === 3,
+    "Each priority must be different",
+  );
 
 export const RecommendInputSchema = z.object({
-  stage: z.enum([
-    "university_student",
-    "recent_grad",
-    "0_3y",
-    "3_7y",
-    "7_plus",
-  ]),
-  field: z.enum([
-    "computer_science",
-    "engineering",
-    "business",
-    "economics",
-    "humanities",
-    "social_sciences",
-    "life_sciences",
-    "physical_sciences",
-    "design",
-    "law",
-    "medicine",
-    "other",
-  ]),
-  skills: z.array(z.string().min(1)).min(1).max(8),
-  interests: z.array(z.string().min(1)).min(1).max(5),
+  // Step 1 — where you are now
+  stage: StageEnum,
+  field: FieldEnum,
+  skills: z.array(z.string().min(1).max(80)).min(1).max(8),
+  interests: z.array(z.string().min(1).max(80)).min(1).max(5),
+
+  // Step 2 — your background (NEW)
+  studies: z.array(StudySchema).min(1).max(5),
+  pastPositions: z.array(PastPositionSchema).max(8).default([]),
+  languages: z.array(LanguageSchema).min(1).max(8),
+
+  // Step 3 — what you're after (NEW)
+  salary: SalarySchema.optional(),
+  location: LocationPrefSchema.optional(),
+  priorityOrder: PriorityOrderSchema.optional(),
+  futureSelf: z.string().max(800).optional(),
   dilemma: z.string().max(500).optional(),
+
+  // System
   locale: z.enum(["en", "it"]).default("en"),
 });
 
+export type Stage = z.infer<typeof StageEnum>;
+export type Field = z.infer<typeof FieldEnum>;
+export type DegreeLevel = z.infer<typeof DegreeLevelEnum>;
+export type Study = z.infer<typeof StudySchema>;
+export type CompanyStage = z.infer<typeof CompanyStageEnum>;
+export type PastPosition = z.infer<typeof PastPositionSchema>;
+export type LanguageProficiency = z.infer<typeof LanguageProficiencyEnum>;
+export type LanguageRow = z.infer<typeof LanguageSchema>;
+export type Currency = z.infer<typeof CurrencyEnum>;
+export type Salary = z.infer<typeof SalarySchema>;
+export type LocationPref = z.infer<typeof LocationPrefSchema>;
+export type PriorityValue = z.infer<typeof PriorityValueEnum>;
+export type PriorityOrder = z.infer<typeof PriorityOrderSchema>;
 export type RecommendInput = z.infer<typeof RecommendInputSchema>;
