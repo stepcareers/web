@@ -1,31 +1,24 @@
-/**
- * Seed the `paths` table from `dataset/seed_paths.csv`.
- *
- * Idempotent: re-running upserts on `path_id` (the slug). Safe to run after
- * editing the CSV. Embeddings are NOT generated here — that's a separate
- * step (see `embed-paths.ts`, to be written next).
- *
- * Run: `npm run db:seed`
- */
-
+import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "csv-parse/sync";
 import { z } from "zod";
-import { prisma } from "../lib/db";
+import { Pool } from "pg";
 
-// CSV path resolution:
-// 1. If SEED_CSV_PATH env var is set → use that absolute path. This is the
-//    default when web/ lives outside OneDrive but the dataset stays in
-//    OneDrive (so we can keep curating it from Cowork).
-// 2. Otherwise → fall back to <web>/../dataset/seed_paths.csv (works when
-//    everything sits in the same project root).
+/**
+ * Seed the `paths` table from `dataset/seed_paths.csv`.
+ *
+ * Uses raw node-postgres (no Prisma client) so the script works on any
+ * architecture, including Windows ARM where the Prisma query engine
+ * binary isn't available.
+ *
+ * Idempotent: re-running upserts on `path_id`. Run: `npm run db:seed`.
+ */
+
 const CSV_PATH = process.env.SEED_CSV_PATH
   ? resolve(process.env.SEED_CSV_PATH)
   : resolve(process.cwd(), "..", "dataset", "seed_paths.csv");
 
-// Validate each CSV row before touching the DB. Bad rows are logged and
-// skipped, never silently dropped.
 const rawRowSchema = z.object({
   path_id: z.string().min(1),
   locale: z.enum(["it", "uk", "eu"]),
@@ -57,8 +50,6 @@ const rawRowSchema = z.object({
   notes: z.string().optional(),
 });
 
-type RawRow = z.infer<typeof rawRowSchema>;
-
 function splitList(raw: string | undefined, sep: string): string[] {
   if (!raw) return [];
   return raw
@@ -72,10 +63,35 @@ function emptyToNull(s: string | undefined): string | null {
   return trimmed && trimmed.length > 0 ? trimmed : null;
 }
 
+const UPSERT_SQL = `
+INSERT INTO paths (
+  path_id, locale, starting_stage, starting_field, starting_role,
+  transition_type, next_role, timeframe_months, key_actions, skills_gained,
+  outcome_24m, evidence_url, confidence, tags, notes, updated_at
+) VALUES (
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW()
+)
+ON CONFLICT (path_id) DO UPDATE SET
+  locale = EXCLUDED.locale,
+  starting_stage = EXCLUDED.starting_stage,
+  starting_field = EXCLUDED.starting_field,
+  starting_role = EXCLUDED.starting_role,
+  transition_type = EXCLUDED.transition_type,
+  next_role = EXCLUDED.next_role,
+  timeframe_months = EXCLUDED.timeframe_months,
+  key_actions = EXCLUDED.key_actions,
+  skills_gained = EXCLUDED.skills_gained,
+  outcome_24m = EXCLUDED.outcome_24m,
+  evidence_url = EXCLUDED.evidence_url,
+  confidence = EXCLUDED.confidence,
+  tags = EXCLUDED.tags,
+  notes = EXCLUDED.notes,
+  updated_at = NOW()
+`;
+
 async function main() {
   console.log(`📂 Reading ${CSV_PATH}`);
   const csv = readFileSync(CSV_PATH, "utf-8");
-
   const rows = parse(csv, {
     columns: true,
     skip_empty_lines: true,
@@ -83,6 +99,8 @@ async function main() {
   }) as Record<string, string>[];
 
   console.log(`📋 Parsed ${rows.length} row(s) from CSV.\n`);
+
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   let upserted = 0;
   let failed = 0;
@@ -98,8 +116,7 @@ async function main() {
       continue;
     }
 
-    const r: RawRow = result.data;
-
+    const r = result.data;
     const keyActions = splitList(r.key_actions, "|");
     const skillsGained = splitList(r.skills_gained, ",");
     const tags = splitList(r.tags, ",");
@@ -111,42 +128,23 @@ async function main() {
     }
 
     try {
-      await prisma.path.upsert({
-        where: { pathId: r.path_id },
-        create: {
-          pathId: r.path_id,
-          locale: r.locale,
-          startingStage: r.starting_stage,
-          startingField: r.starting_field,
-          startingRole: r.starting_role,
-          transitionType: r.transition_type,
-          nextRole: r.next_role,
-          timeframeMonths: r.timeframe_months,
-          keyActions,
-          skillsGained,
-          outcome24m: r.outcome_24m,
-          evidenceUrl: emptyToNull(r.evidence_url),
-          confidence: r.confidence,
-          tags,
-          notes: emptyToNull(r.notes),
-        },
-        update: {
-          locale: r.locale,
-          startingStage: r.starting_stage,
-          startingField: r.starting_field,
-          startingRole: r.starting_role,
-          transitionType: r.transition_type,
-          nextRole: r.next_role,
-          timeframeMonths: r.timeframe_months,
-          keyActions,
-          skillsGained,
-          outcome24m: r.outcome_24m,
-          evidenceUrl: emptyToNull(r.evidence_url),
-          confidence: r.confidence,
-          tags,
-          notes: emptyToNull(r.notes),
-        },
-      });
+      await pool.query(UPSERT_SQL, [
+        r.path_id,
+        r.locale,
+        r.starting_stage,
+        r.starting_field,
+        r.starting_role,
+        r.transition_type,
+        r.next_role,
+        r.timeframe_months,
+        keyActions,
+        skillsGained,
+        r.outcome_24m,
+        emptyToNull(r.evidence_url),
+        r.confidence,
+        tags,
+        emptyToNull(r.notes),
+      ]);
       console.log(`✓ ${r.path_id}`);
       upserted++;
     } catch (err) {
@@ -162,35 +160,29 @@ async function main() {
     process.exitCode = 1;
   }
 
-  // Quick sanity counts.
-  const total = await prisma.path.count();
-  const byLocale = await prisma.path.groupBy({
-    by: ["locale"],
-    _count: { _all: true },
-    orderBy: { locale: "asc" },
-  });
-  const byTransition = await prisma.path.groupBy({
-    by: ["transitionType"],
-    _count: { _all: true },
-    orderBy: { transitionType: "asc" },
-  });
+  const totalRes = await pool.query(`SELECT COUNT(*)::int AS count FROM paths`);
+  const total = totalRes.rows[0].count as number;
+  const byLocaleRes = await pool.query(
+    `SELECT locale, COUNT(*)::int AS count FROM paths GROUP BY locale ORDER BY locale`,
+  );
+  const byTransitionRes = await pool.query(
+    `SELECT transition_type, COUNT(*)::int AS count FROM paths GROUP BY transition_type ORDER BY transition_type`,
+  );
 
   console.log(`\n📊 paths table — ${total} row(s) total`);
   console.log(`   By locale:`);
-  for (const row of byLocale) {
-    console.log(`     ${row.locale}: ${row._count._all}`);
+  for (const row of byLocaleRes.rows) {
+    console.log(`     ${row.locale}: ${row.count}`);
   }
   console.log(`   By transition_type:`);
-  for (const row of byTransition) {
-    console.log(`     ${row.transitionType}: ${row._count._all}`);
+  for (const row of byTransitionRes.rows) {
+    console.log(`     ${row.transition_type}: ${row.count}`);
   }
+
+  await pool.end();
 }
 
-main()
-  .catch((err) => {
-    console.error("\n💥 Fatal error:", err);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+main().catch(async (err) => {
+  console.error("\n💥 Fatal error:", err);
+  process.exit(1);
+});

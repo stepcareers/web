@@ -17,15 +17,19 @@
     "db:seed": "tsx scripts/seed-paths.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.2.1",
+    "@prisma/adapter-pg": "^6.19.3",
+    "@prisma/client": "^6.19.3",
     "csv-parse": "^5.6.0",
+    "dotenv": "^17.4.2",
     "next": "^15.1.6",
+    "pg": "^8.20.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "autoprefixer": "^10.4.20",
