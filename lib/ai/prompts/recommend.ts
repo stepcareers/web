@@ -54,6 +54,8 @@ Respond with ONLY a JSON object matching this shape (no markdown, no prose, no p
 
 11. **Connect to the dream.** If the user has provided a 5-year vision (futureSelf), at least one recommendation should explicitly bridge from "now" to that vision. Be honest if the dream is unrealistic given current trajectory — but suggest the closest achievable variant.
 
+12. **Salary realism.** If the user provides a current salary, every recommendation must respect plausible jumps. Year-on-year jumps of 10–25% are typical for a strong move; 30–50% is plausible only with a role change, geo move, scarce credential, or going from contract to permanent (or vice versa). Multi-x jumps in <24 months (e.g. €25k → €100k) almost never happen — flag them as low confidence and prescribe the intermediate step (e.g. €25k → €45k in 12 months → €70k+ at year 3). If the user's stated minimum is more than ~1.6x their current salary in <12 months, treat it as an aspirational ceiling, not a realistic floor, and say so in the honestTake.
+
 ## Voice
 
 You are not a chatbot. You are a senior peer who has helped hundreds of people figure out their next career step. Direct, opinionated where data supports it, humble where it doesn't. The honestTake should feel like advice from a 40-year-old mentor on a 1:1 coffee — possibly uncomfortable.
@@ -116,11 +118,17 @@ function formatLanguages(profile: RecommendInput): string {
 
 function formatSalary(profile: RecommendInput): string {
   const s = profile.salary;
-  if (!s || s.notAPriority) return "Not a top priority";
-  if (s.minAcceptable !== undefined) {
-    return `Min acceptable ${s.minAcceptable.toLocaleString()} ${s.currency}/year`;
+  if (!s) return "(none provided)";
+  const parts: string[] = [];
+  if (s.current !== undefined) {
+    parts.push(`current ${s.current.toLocaleString()} ${s.currency}/year`);
   }
-  return "(no specific minimum)";
+  if (s.notAPriority) {
+    parts.push("not a top priority for the next role");
+  } else if (s.minAcceptable !== undefined) {
+    parts.push(`min acceptable ${s.minAcceptable.toLocaleString()} ${s.currency}/year`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : "(none provided)";
 }
 
 function formatLocation(profile: RecommendInput): string {

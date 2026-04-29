@@ -113,6 +113,7 @@ export const CurrencyEnum = z.enum(["EUR", "GBP", "USD"]);
 
 export const SalarySchema = z.object({
   notAPriority: z.boolean().default(false),
+  current: z.coerce.number().int().min(0).max(2_000_000).optional(),
   minAcceptable: z.coerce.number().int().min(0).max(2_000_000).optional(),
   currency: CurrencyEnum.default("EUR"),
 });

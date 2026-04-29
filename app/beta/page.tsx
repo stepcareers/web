@@ -83,6 +83,16 @@ interface LanguageRow {
 type Currency = "EUR" | "GBP" | "USD";
 type PriorityValue = "position" | "money" | "location";
 
+interface ProfileSnapshot {
+  stage: Stage;
+  field: FieldEnum;
+  currentSalary?: number;
+  minSalary?: number;
+  currency: Currency;
+  futureSelf?: string;
+  locationPreferred?: string;
+}
+
 interface Recommendation {
   title: string;
   rationale: string;
@@ -120,6 +130,14 @@ const STAGE_OPTIONS: Array<{ value: Stage; label: string }> = [
   { value: "3_7y", label: "3–7 years experience" },
   { value: "7_plus", label: "7+ years experience" },
 ];
+
+const STAGE_SHORT: Record<Stage, string> = {
+  university_student: "University student",
+  recent_grad: "Recent grad",
+  "0_3y": "0–3y experience",
+  "3_7y": "3–7y experience",
+  "7_plus": "7+ years experience",
+};
 
 const FIELD_OPTIONS: Array<{ value: FieldEnum; label: string }> = [
   { value: "computer_science", label: "Computer Science / Software" },
@@ -168,18 +186,39 @@ const PROFICIENCY_OPTIONS: Array<{ value: LanguageProficiency; label: string }> 
   { value: "conversational", label: "Conversational" },
 ];
 
-const COMMON_LANGUAGES = [
+// Comprehensive language list — pure picker, no free-text typing.
+const LANGUAGE_OPTIONS = [
   "English",
   "Italian",
   "Spanish",
   "French",
   "German",
   "Portuguese",
-  "Mandarin",
-  "Arabic",
-  "Russian",
   "Dutch",
   "Polish",
+  "Greek",
+  "Romanian",
+  "Czech",
+  "Hungarian",
+  "Swedish",
+  "Norwegian",
+  "Danish",
+  "Finnish",
+  "Russian",
+  "Ukrainian",
+  "Turkish",
+  "Arabic",
+  "Hebrew",
+  "Mandarin",
+  "Cantonese",
+  "Japanese",
+  "Korean",
+  "Hindi",
+  "Bengali",
+  "Vietnamese",
+  "Thai",
+  "Indonesian",
+  "Other",
 ];
 
 const SKILL_SUGGESTIONS = [
@@ -258,6 +297,12 @@ const MAX_STUDIES = 5;
 const MAX_PAST_POSITIONS = 5;
 const MAX_LANGUAGES = 6;
 
+const CURRENCY_SYMBOL: Record<Currency, string> = {
+  EUR: "€",
+  GBP: "£",
+  USD: "$",
+};
+
 /* ─── Page component ──────────────────────────────────────────── */
 
 export default function BetaPage() {
@@ -284,7 +329,8 @@ export default function BetaPage() {
   ]);
 
   // Step 3
-  const [salaryNotPriority, setSalaryNotPriority] = useState(true);
+  const [salaryCurrent, setSalaryCurrent] = useState("");
+  const [salaryNotPriority, setSalaryNotPriority] = useState(false);
   const [salaryMin, setSalaryMin] = useState("");
   const [salaryCurrency, setSalaryCurrency] = useState<Currency>("EUR");
   const [locationPreferred, setLocationPreferred] = useState("");
@@ -298,6 +344,7 @@ export default function BetaPage() {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [result, setResult] = useState<ApiResponse | null>(null);
+  const [profileSnapshot, setProfileSnapshot] = useState<ProfileSnapshot | null>(null);
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
   const [elapsedSec, setElapsedSec] = useState(0);
 
@@ -400,7 +447,11 @@ export default function BetaPage() {
   }
   function addLanguage() {
     if (languages.length >= MAX_LANGUAGES) return;
-    setLanguages((s) => [...s, { language: "", proficiency: "professional" }]);
+    // Pick the first not-yet-selected language as default
+    const taken = new Set(languages.map((l) => l.language));
+    const next =
+      LANGUAGE_OPTIONS.find((lang) => !taken.has(lang)) ?? "Other";
+    setLanguages((s) => [...s, { language: next, proficiency: "professional" }]);
   }
 
   /* ─ Validation per step ─ */
@@ -416,13 +467,16 @@ export default function BetaPage() {
     }
     if (languages.length === 0) return "Add at least 1 language.";
     for (const l of languages) {
-      if (!l.language.trim()) return "Every language row needs a language name.";
+      if (!l.language.trim()) return "Pick a language for every row.";
     }
     return null;
   }
   function validateStep3(): string | null {
     const set = new Set([priorityFirst, prioritySecond, priorityThird]);
     if (set.size !== 3) return "Each priority must be different (position, money, location).";
+    if (salaryCurrent && Number(salaryCurrent) < 0) {
+      return "Current salary can't be negative.";
+    }
     if (!salaryNotPriority && salaryMin && Number(salaryMin) < 0) {
       return "Salary minimum can't be negative.";
     }
@@ -463,6 +517,10 @@ export default function BetaPage() {
       return;
     }
 
+    const currentSalaryNum = salaryCurrent ? Number(salaryCurrent) : undefined;
+    const minSalaryNum =
+      salaryNotPriority || !salaryMin ? undefined : Number(salaryMin);
+
     const payload = {
       stage,
       field: fieldVal,
@@ -473,9 +531,8 @@ export default function BetaPage() {
       languages,
       salary: {
         notAPriority: salaryNotPriority,
-        minAcceptable: salaryNotPriority || !salaryMin
-          ? undefined
-          : Number(salaryMin),
+        current: currentSalaryNum,
+        minAcceptable: minSalaryNum,
         currency: salaryCurrency,
       },
       location: {
@@ -492,6 +549,17 @@ export default function BetaPage() {
       dilemma: dilemma.trim() || undefined,
       locale: "en" as const,
     };
+
+    // Snapshot the profile for the result view (timeline NOW → vision)
+    setProfileSnapshot({
+      stage,
+      field: fieldVal,
+      currentSalary: currentSalaryNum,
+      minSalary: minSalaryNum,
+      currency: salaryCurrency,
+      futureSelf: futureSelf.trim() || undefined,
+      locationPreferred: locationPreferred.trim() || undefined,
+    });
 
     setPhase("loading");
     setLoadingMsgIdx(0);
@@ -524,6 +592,7 @@ export default function BetaPage() {
     setPhase("form");
     setStep(1);
     setResult(null);
+    setProfileSnapshot(null);
     setErrorMsg(null);
   }
 
@@ -590,6 +659,8 @@ export default function BetaPage() {
 
           {step === 3 && (
             <Step3
+              salaryCurrent={salaryCurrent}
+              setSalaryCurrent={setSalaryCurrent}
               salaryNotPriority={salaryNotPriority}
               setSalaryNotPriority={setSalaryNotPriority}
               salaryMin={salaryMin}
@@ -654,7 +725,11 @@ export default function BetaPage() {
       )}
 
       {phase === "result" && result && (
-        <ResultView data={result} onReset={handleReset} />
+        <ResultView
+          data={result}
+          profile={profileSnapshot}
+          onReset={handleReset}
+        />
       )}
 
       {phase === "error" && (
@@ -970,7 +1045,7 @@ function Step2(p: Step2Props) {
         )}
       </div>
 
-      {/* Languages */}
+      {/* Languages — pure picker, no typing */}
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">Languages</span>
@@ -979,8 +1054,7 @@ function Step2(p: Step2Props) {
           </span>
         </div>
         <span className="text-xs text-ink-200/60 dark:text-ink-200/50">
-          Critical for relocation/remote signals. Pick from common ones or
-          type any other.
+          Critical for relocation/remote signals. Pick from the list.
         </span>
 
         {p.languages.map((l, i) => (
@@ -988,20 +1062,17 @@ function Step2(p: Step2Props) {
             key={i}
             className="flex flex-col gap-2 rounded-md border border-ink-200/20 p-3 sm:flex-row sm:items-center"
           >
-            <input
-              type="text"
-              list={`lang-suggestions-${i}`}
+            <select
               value={l.language}
               onChange={(e) => p.updateLanguage(i, { language: e.target.value })}
-              placeholder="Language (e.g. English, Italian)"
-              className="form-input flex-1"
-              maxLength={40}
-            />
-            <datalist id={`lang-suggestions-${i}`}>
-              {COMMON_LANGUAGES.map((lang) => (
-                <option key={lang} value={lang} />
+              className="form-select flex-1"
+            >
+              {LANGUAGE_OPTIONS.map((lang) => (
+                <option key={lang} value={lang}>
+                  {lang}
+                </option>
               ))}
-            </datalist>
+            </select>
             <select
               value={l.proficiency}
               onChange={(e) =>
@@ -1046,6 +1117,8 @@ function Step2(p: Step2Props) {
 /* ─── Step 3 ──────────────────────────────────────────────────── */
 
 interface Step3Props {
+  salaryCurrent: string;
+  setSalaryCurrent: (s: string) => void;
   salaryNotPriority: boolean;
   setSalaryNotPriority: (b: boolean) => void;
   salaryMin: string;
@@ -1085,27 +1158,28 @@ function Step3(p: Step3Props) {
         </h1>
         <p className="mt-3 text-base text-ink-200/90 dark:text-ink-200/70">
           Your goals, constraints, and the dream you&apos;re working toward.
+          We&apos;ll be honest with you — recommendations have to be grounded
+          in where you actually are today.
         </p>
       </div>
 
-      {/* Salary */}
-      <FieldWrap label="Salary expectations" hint="What's the floor you'd accept for the right role?">
-        <div className="flex flex-col gap-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={p.salaryNotPriority}
-              onChange={(e) => p.setSalaryNotPriority(e.target.checked)}
-            />
-            <span>Salary is not a top priority right now</span>
-          </label>
-          {!p.salaryNotPriority && (
+      {/* Salary — current + target + currency */}
+      <FieldWrap
+        label="Salary"
+        hint="Current comp anchors realism. We won't promise you a 4x jump if you're at €25k today — but we'll show you the closest move that gets you closer to the dream."
+      >
+        <div className="flex flex-col gap-3">
+          {/* Current salary */}
+          <div className="flex flex-col gap-1">
+            <span className="text-xs uppercase tracking-wider text-ink-200/60">
+              What do you make today? (annual, gross)
+            </span>
             <div className="flex gap-2">
               <input
                 type="number"
-                value={p.salaryMin}
-                onChange={(e) => p.setSalaryMin(e.target.value)}
-                placeholder="Minimum acceptable annual salary"
+                value={p.salaryCurrent}
+                onChange={(e) => p.setSalaryCurrent(e.target.value)}
+                placeholder="e.g. 28000"
                 min={0}
                 className="form-input flex-1"
               />
@@ -1119,7 +1193,42 @@ function Step3(p: Step3Props) {
                 <option value="USD">USD $</option>
               </select>
             </div>
-          )}
+            <span className="text-xs text-ink-200/50">
+              Optional but strongly encouraged. We use this to keep recommendations realistic.
+            </span>
+          </div>
+
+          {/* Target / minimum */}
+          <div className="flex flex-col gap-2 border-t border-ink-200/15 pt-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={p.salaryNotPriority}
+                onChange={(e) => p.setSalaryNotPriority(e.target.checked)}
+              />
+              <span>Salary isn&apos;t my top priority for the next role</span>
+            </label>
+            {!p.salaryNotPriority && (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs uppercase tracking-wider text-ink-200/60">
+                  What&apos;s the minimum you&apos;d accept for the next role?
+                </span>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={p.salaryMin}
+                    onChange={(e) => p.setSalaryMin(e.target.value)}
+                    placeholder="e.g. 38000"
+                    min={0}
+                    className="form-input flex-1"
+                  />
+                  <span className="flex items-center justify-center rounded-md border border-ink-200/30 px-3 text-sm text-ink-200/60">
+                    {CURRENCY_SYMBOL[p.salaryCurrency]} {p.salaryCurrency}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </FieldWrap>
 
@@ -1346,16 +1455,123 @@ function LoadingView({
   );
 }
 
+/* ─── Now → Vision timeline (top of result) ───────────────────── */
+
+function NowToFutureBar({ profile }: { profile: ProfileSnapshot | null }) {
+  if (!profile) return null;
+
+  const stageLabel = STAGE_SHORT[profile.stage];
+  const sym = CURRENCY_SYMBOL[profile.currency];
+
+  const nowSalary =
+    profile.currentSalary !== undefined
+      ? `${sym}${profile.currentSalary.toLocaleString()}/yr`
+      : null;
+
+  const targetSalary =
+    profile.minSalary !== undefined
+      ? `${sym}${profile.minSalary.toLocaleString()}+/yr`
+      : null;
+
+  const visionText =
+    profile.futureSelf?.trim() ||
+    "Your 5-year vision (add one in step 3 to make this richer)";
+  const visionShort =
+    visionText.length > 140 ? visionText.slice(0, 137) + "…" : visionText;
+
+  return (
+    <section
+      aria-label="Where you are vs where you want to go"
+      className="rounded-xl border border-ink-200/25 bg-ink-200/[0.03] p-5 dark:bg-ink-50/[0.02]"
+    >
+      <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
+        {/* NOW */}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-ink-950 dark:bg-ink-50" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-ink-200/70">
+              Now
+            </span>
+          </div>
+          <span className="text-base font-medium leading-snug">
+            {stageLabel}
+            {profile.locationPreferred ? ` · ${profile.locationPreferred}` : ""}
+          </span>
+          {nowSalary && (
+            <span className="text-sm text-ink-200/70 dark:text-ink-200/60">
+              {nowSalary}
+            </span>
+          )}
+        </div>
+
+        {/* Connector */}
+        <div className="flex flex-col items-center justify-center pt-3">
+          <svg
+            width="80"
+            height="20"
+            viewBox="0 0 80 20"
+            className="text-ink-200/40"
+            aria-hidden="true"
+          >
+            <line
+              x1="2"
+              y1="10"
+              x2="70"
+              y2="10"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeDasharray="3 3"
+            />
+            <polyline
+              points="64,4 72,10 64,16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span className="mt-1 text-[10px] uppercase tracking-wider text-ink-200/45">
+            5 years
+          </span>
+        </div>
+
+        {/* VISION */}
+        <div className="flex flex-col gap-1.5 text-right">
+          <div className="flex items-center justify-end gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-ink-200/70">
+              Vision
+            </span>
+            <span className="h-2.5 w-2.5 rounded-full border-2 border-ink-950 dark:border-ink-50" />
+          </div>
+          <span className="text-base font-medium leading-snug">
+            {visionShort}
+          </span>
+          {targetSalary && (
+            <span className="text-sm text-ink-200/70 dark:text-ink-200/60">
+              Target: {targetSalary}
+            </span>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ResultView({
   data,
+  profile,
   onReset,
 }: {
   data: ApiResponse;
+  profile: ProfileSnapshot | null;
   onReset: () => void;
 }) {
   const { result, meta } = data;
   return (
     <section className="flex flex-col gap-10">
+      <NowToFutureBar profile={profile} />
+
       <div>
         <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
           Your next steps
