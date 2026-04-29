@@ -32,7 +32,11 @@ const config: Config = {
     },
   },
   plugins: [],
-  darkMode: "media",
+  // "class" strategy: dark: variants activate when html has class="dark".
+  // We force this in app/layout.tsx so the site is consistently dark on
+  // every device regardless of OS theme. Was "media" before, which left
+  // mobile users in light mode with unreadable gray text.
+  darkMode: "class",
 };
 
 export default config;
