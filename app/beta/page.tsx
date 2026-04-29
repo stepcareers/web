@@ -458,8 +458,8 @@ function FormView(p: FormProps) {
         />
 
         <Field
-          label="What's the decision on your mind? (optional)"
-          hint="Be specific. The clearer the dilemma, the better the recommendation."
+          label="What career question can't you stop thinking about? (optional)"
+          hint="Be specific. The clearer the dilemma, the sharper the recommendation."
         >
           <textarea
             value={p.dilemma}

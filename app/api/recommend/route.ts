@@ -37,7 +37,11 @@ const VOYAGE_MODEL = "voyage-3-large";
 const VOYAGE_DIMENSIONS = 1024;
 const MODEL_KEY = `${VOYAGE_MODEL}-${VOYAGE_DIMENSIONS}`;
 const TOP_K = 5;
-const CLAUDE_MODEL = "claude-sonnet-4-5";
+// Haiku 4.5 instead of Sonnet 4.5 → ~5x faster, fits in Vercel Hobby's 60s cap.
+// Quality is slightly lower for nuanced honest takes; revisit if user feedback
+// signals it. Fallback options: upgrade Vercel Pro (300s cap), or use Sonnet 4
+// (mid-tier speed/quality).
+const CLAUDE_MODEL = "claude-haiku-4-5";
 
 /* ─── Pool singleton ────────────────────────────────────────────────── */
 
