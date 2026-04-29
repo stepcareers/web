@@ -102,7 +102,7 @@ export default function LandingPage() {
         </h1>
         <p className="max-w-2xl text-lg leading-relaxed text-ink-200/90 dark:text-ink-200/70 md:text-xl">
           AI career advice grounded in real career patterns. We turn the
-          fog of "what do I do next?" into 3–5 ranked moves with concrete
+          fog of &ldquo;what do I do next?&rdquo; into 3–5 ranked moves with concrete
           90-day actions.
         </p>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -130,7 +130,7 @@ export default function LandingPage() {
           </Bullet>
           <Bullet>
             <strong>Concrete 90-day actions</strong> — verb-led, time-bounded,
-            replicable. Not "network more."
+            replicable. Not &ldquo;network more.&rdquo;
           </Bullet>
           <Bullet>
             <strong>Honest take</strong> in the voice of a senior peer who has
