@@ -12,6 +12,26 @@ body {
   height: 100%;
 }
 
+/* Force dark mode site-wide. Light-mode styling was inconsistent on
+   mobile (white bg + light-gray text = unreadable). Locking to dark
+   gives one cohesive look until we have time to design a real light
+   theme. `color-scheme: dark` also tells the browser to render
+   scrollbars + native form controls in dark variant.
+
+   We also pin background-color on body (not just html) and use !important
+   to override any cached/conflicting styles from older Tailwind builds.
+   Belt-and-suspenders against mobile cache showing white. */
+html {
+  background-color: #0a0a0a !important;
+  color: #fafafa;
+  color-scheme: dark;
+}
+
+body {
+  background-color: #0a0a0a !important;
+  color: #fafafa;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   html {
     scroll-behavior: smooth;
