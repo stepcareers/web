@@ -28,7 +28,9 @@ const VOYAGE_DIMENSIONS = 1024;
 const MODEL_KEY = `${VOYAGE_MODEL}-${VOYAGE_DIMENSIONS}`;
 const TOP_K = 5; // how many paths to retrieve per fixture
 
-const CLAUDE_MODEL = "claude-sonnet-4-5"; // change as we iterate
+// We test against Sonnet 4.5 here (offline, no time cap) to evaluate the
+// best-quality output. Production runs Haiku 4.5 for the 60s Vercel cap.
+const CLAUDE_MODEL = "claude-sonnet-4-5";
 
 const VOYAGE_API_KEY = process.env.VOYAGE_API_KEY;
 if (!VOYAGE_API_KEY) throw new Error("Missing VOYAGE_API_KEY in .env");
@@ -45,6 +47,32 @@ const FIXTURES: Array<{ name: string; profile: RecommendInput }> = [
       field: "life_sciences",
       skills: ["lab research", "statistics", "scientific writing", "Python"],
       interests: ["product design", "UX research", "human behavior"],
+      studies: [
+        { level: "phd", field: "Molecular Biology", institution: "University of Milan" },
+        { level: "master", field: "Biology", institution: "University of Milan" },
+        { level: "bachelor", field: "Biology", institution: "University of Milan" },
+      ],
+      pastPositions: [
+        {
+          title: "PhD Researcher",
+          companyStage: "academia",
+          durationMonths: 48,
+          description: "Wet-lab + computational genomics, 2 first-author papers",
+        },
+      ],
+      languages: [
+        { language: "Italian", proficiency: "native" },
+        { language: "English", proficiency: "fluent" },
+      ],
+      salary: { notAPriority: false, minAcceptable: 45000, currency: "EUR" },
+      location: {
+        preferred: "Milan or remote EU",
+        openToRemote: true,
+        openToRelocation: false,
+      },
+      priorityOrder: { first: "position", second: "location", third: "money" },
+      futureSelf:
+        "Senior UX Researcher at a product company, doing mixed-methods research on real users, working on something I find meaningful.",
       dilemma:
         "I'm a 4th-year molecular biology PhD in Milan. I love research but academia feels like a dead end. UX research keeps coming up — but I have zero industry experience. Is the pivot real or am I deluding myself?",
       locale: "en",
@@ -57,6 +85,27 @@ const FIXTURES: Array<{ name: string; profile: RecommendInput }> = [
       field: "computer_science",
       skills: ["TypeScript", "Postgres", "AWS", "system design basics"],
       interests: ["scaling backend systems", "mentoring", "leadership"],
+      studies: [
+        { level: "bachelor", field: "Computer Science", institution: "University of Manchester" },
+      ],
+      pastPositions: [
+        {
+          title: "Junior Backend Engineer",
+          companyStage: "startup_b_plus",
+          durationMonths: 18,
+          description: "Series B fintech, payments service, on-call rotation",
+        },
+      ],
+      languages: [{ language: "English", proficiency: "native" }],
+      salary: { notAPriority: false, minAcceptable: 75000, currency: "GBP" },
+      location: {
+        preferred: "London",
+        openToRemote: true,
+        openToRelocation: false,
+      },
+      priorityOrder: { first: "position", second: "money", third: "location" },
+      futureSelf:
+        "Tech Lead at a Series C–D fintech in London, leading a 4–6 person backend squad, comp around £130k.",
       dilemma:
         "Junior backend engineer at a Series B fintech in London, 18 months in. I want to be tech lead in 18-24 months. What do I actually do?",
       locale: "en",
@@ -69,6 +118,31 @@ const FIXTURES: Array<{ name: string; profile: RecommendInput }> = [
       field: "engineering",
       skills: ["PowerPoint", "Excel modeling", "client communication", "SQL basics"],
       interests: ["product strategy", "tech", "user research"],
+      studies: [
+        { level: "msc", field: "Management Engineering", institution: "Politecnico di Milano" },
+        { level: "bachelor", field: "Engineering", institution: "Politecnico di Milano" },
+      ],
+      pastPositions: [
+        {
+          title: "Junior Consultant",
+          companyStage: "corporate",
+          durationMonths: 22,
+          description: "Big 4, tech advisory, mostly digital transformation projects",
+        },
+      ],
+      languages: [
+        { language: "Italian", proficiency: "native" },
+        { language: "English", proficiency: "professional" },
+      ],
+      salary: { notAPriority: false, minAcceptable: 50000, currency: "EUR" },
+      location: {
+        preferred: "Milan or remote",
+        openToRemote: true,
+        openToRelocation: false,
+      },
+      priorityOrder: { first: "position", second: "money", third: "location" },
+      futureSelf:
+        "Senior PM at a B2B SaaS scale-up, owning a real product surface, ~€80k.",
       dilemma:
         "Junior consultant at Big 4 in Milan. Doing tech advisory projects but it's still consulting. I want to be a PM at a SaaS company. How do I make the jump from consulting to product?",
       locale: "it",
@@ -81,6 +155,27 @@ const FIXTURES: Array<{ name: string; profile: RecommendInput }> = [
       field: "humanities",
       skills: ["writing", "social media", "Excel"],
       interests: ["growth marketing", "DTC brands", "data"],
+      studies: [
+        { level: "bachelor", field: "English Literature", institution: "University of Bristol" },
+      ],
+      pastPositions: [
+        {
+          title: "Marketing Intern",
+          companyStage: "startup_seed_a",
+          durationMonths: 4,
+          description: "DTC e-commerce brand, social + email assistance",
+        },
+      ],
+      languages: [{ language: "English", proficiency: "native" }],
+      salary: { notAPriority: true, currency: "GBP" },
+      location: {
+        preferred: "London",
+        openToRemote: true,
+        openToRelocation: false,
+      },
+      priorityOrder: { first: "position", second: "location", third: "money" },
+      futureSelf:
+        "Growth Lead at a fast-growing DTC or B2C SaaS brand, owning paid + lifecycle, comfortable with SQL and analytics.",
       dilemma:
         "Just graduated from a UK university in English Lit. Got a marketing intern role at an e-commerce brand. I want to be a growth lead in 3 years. What's the playbook?",
       locale: "en",
@@ -93,6 +188,38 @@ const FIXTURES: Array<{ name: string; profile: RecommendInput }> = [
       field: "computer_science",
       skills: ["TypeScript", "AWS", "system design", "Postgres", "team leadership"],
       interests: ["distributed systems", "live in Germany", "higher comp"],
+      studies: [
+        { level: "msc", field: "Computer Science", institution: "Sapienza Università di Roma" },
+        { level: "bachelor", field: "Computer Science", institution: "Sapienza Università di Roma" },
+      ],
+      pastPositions: [
+        {
+          title: "Senior Backend Engineer",
+          companyStage: "scaleup",
+          durationMonths: 36,
+          description: "Italian fintech in Rome, owns the payments service end-to-end",
+        },
+        {
+          title: "Backend Engineer",
+          companyStage: "startup_seed_a",
+          durationMonths: 24,
+          description: "Earlier-stage Italian startup, full-stack Node/Postgres",
+        },
+      ],
+      languages: [
+        { language: "Italian", proficiency: "native" },
+        { language: "English", proficiency: "fluent" },
+        { language: "German", proficiency: "conversational" },
+      ],
+      salary: { notAPriority: false, minAcceptable: 90000, currency: "EUR" },
+      location: {
+        preferred: "Berlin",
+        openToRemote: false,
+        openToRelocation: true,
+      },
+      priorityOrder: { first: "location", second: "money", third: "position" },
+      futureSelf:
+        "Senior/Staff Engineer at a Series C+ German tech company, Berlin-based, ~€110k+, working on distributed systems.",
       dilemma:
         "5 years experience as senior backend engineer at an Italian fintech in Rome. My partner and I want to move to Berlin. How do I land a senior role at a German tech company in 6 months?",
       locale: "en",
@@ -146,14 +273,27 @@ ORDER BY pe.embedding <=> $1::vector ASC
 LIMIT $3
 `;
 
-/** Build one search string from the user profile. Keeps embedding-input
- * short and focused on what the user is asking for. */
+/** Build one search string from the user profile. Mirrors what the API
+ * route does so retrieval quality is consistent between offline tests
+ * and production. */
 function profileToQueryText(p: RecommendInput): string {
+  const studiesText = p.studies?.length
+    ? p.studies.map((s) => `${s.level} in ${s.field}`).join(", ")
+    : "";
+  const positionsText = p.pastPositions?.length
+    ? p.pastPositions
+        .map((pos) => `${pos.title} at ${pos.companyStage}`)
+        .join("; ")
+    : "";
+
   return [
     `Stage: ${p.stage}`,
     `Field: ${p.field}`,
     `Skills: ${p.skills.join(", ")}`,
     `Interests: ${p.interests.join(", ")}`,
+    studiesText && `Education: ${studiesText}`,
+    positionsText && `Past positions: ${positionsText}`,
+    p.futureSelf ? `Future self: ${p.futureSelf}` : "",
     p.dilemma ? `Dilemma: ${p.dilemma}` : "",
   ]
     .filter(Boolean)
