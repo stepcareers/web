@@ -1,0 +1,196 @@
+// Step — Database schema
+//
+// Conventions:
+// - Postgres tables in snake_case plural (`users`, `paths`, `path_embeddings`).
+// - Prisma models in PascalCase singular.
+// - Enum-like columns are stored as `String` (validated app-side via Zod) to
+//   keep schema evolution painless. Adding a new value should not require a
+//   DB migration.
+// - All times in UTC. Use `created_at` and `updated_at` consistently.
+// - Soft-delete via `deleted_at` only where it matters (users, results).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")        // pooled connection (PgBouncer)
+  directUrl = env("DIRECT_URL")          // direct connection (for migrations)
+  // Note: we do NOT enable the `postgresqlExtensions` preview feature.
+  // Supabase manages extensions outside of Prisma's view (some live in
+  // other schemas like `vault`/`extensions` and survive `migrate reset`),
+  // so letting Prisma "manage" them creates persistent drift detection.
+  // The `Unsupported("vector(1024)")` field in PathEmbedding works fine
+  // as long as the `vector` extension is installed on the DB (it is —
+  // we enabled it via Supabase UI on Day 1).
+}
+
+// ─── Users ────────────────────────────────────────────────────────────
+// Mirrors `auth.users` from Supabase Auth (we keep our own row keyed by the
+// same UUID so we can attach extra fields and join cleanly).
+model User {
+  id        String    @id @db.Uuid
+  email     String    @unique
+  locale    String    @default("en") // "en" | "it"
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  sessions          Session[]
+  emailSubscriptions EmailSubscription[]
+
+  @@map("users")
+  @@index([email])
+}
+
+// ─── Sessions ─────────────────────────────────────────────────────────
+// One session = one onboarding submission. Anonymous users are allowed
+// (userId is nullable) — we link them to a user later when they verify their
+// email via the magic-link gate.
+model Session {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  ipHash    String?  @map("ip_hash")    // sha256(IP + secret) for rate limiting
+  userAgent String?  @map("user_agent")
+  locale    String   @default("en")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  input  Input?
+  result Result?
+
+  @@map("sessions")
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ─── Inputs (the form data) ───────────────────────────────────────────
+model Input {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId   String   @unique @map("session_id") @db.Uuid
+
+  stage       String                       // "university_student" | "recent_grad" | "0_3y" | "3_7y" | "7_plus"
+  field       String                       // "computer_science" | "engineering" | "business" | "humanities" | …
+  skills      String[]                     // chips (max 5)
+  interests   String[]                     // chips (max 3)
+  dilemma     String?  @db.Text            // free text, max 200 chars (validated app-side)
+  linkedinUrl String?  @map("linkedin_url")
+  cvText      String?  @map("cv_text") @db.Text
+  locale      String   @default("en")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("inputs")
+  @@index([stage])
+  @@index([field])
+}
+
+// ─── Career paths (curated dataset) ───────────────────────────────────
+// Loaded from `dataset/seed_paths.csv`. Run `pnpm db:seed` to refresh after
+// editing the CSV.
+model Path {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pathId          String   @unique @map("path_id")  // kebab slug from CSV
+  locale          String                            // "it" | "uk" | "eu"
+  startingStage   String   @map("starting_stage")
+  startingField   String   @map("starting_field")
+  startingRole    String   @map("starting_role")
+  transitionType  String   @map("transition_type")
+  nextRole        String   @map("next_role")
+  timeframeMonths Int      @map("timeframe_months")
+  keyActions      String[] @map("key_actions")      // 3-5 verb-led bullets
+  skillsGained    String[] @map("skills_gained")    // chips
+  outcome24m      String   @map("outcome_24m") @db.Text
+  evidenceUrl     String?  @map("evidence_url")
+  confidence      String                            // "high" | "medium" | "low"
+  tags            String[]
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt      @map("updated_at")
+
+  embeddings      PathEmbedding[]
+
+  @@map("paths")
+  @@index([locale])
+  @@index([startingStage])
+  @@index([startingField])
+  @@index([transitionType])
+  @@index([confidence])
+}
+
+// ─── Path embeddings (vector search via pgvector) ─────────────────────
+// One row per (path, embedding model). Today we use `voyage-3-large` at
+// 1024 dims as the default. If we add a second model, we add rows here
+// rather than columns.
+//
+// `embedding` is a pgvector column — Prisma doesn't have first-class
+// support yet, so we declare it as Unsupported and read/write via raw SQL:
+//   SELECT * FROM path_embeddings ORDER BY embedding <=> $1::vector LIMIT 50
+// HNSW index is created via raw SQL in the initial migration.
+model PathEmbedding {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pathId     String   @map("path_id") @db.Uuid
+  model      String                              // e.g. "voyage-3-large-1024"
+  dimensions Int                                 // duplicated from `model` for query convenience
+  embedding  Unsupported("vector(1024)")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  path       Path     @relation(fields: [pathId], references: [id], onDelete: Cascade)
+
+  @@map("path_embeddings")
+  @@unique([pathId, model])
+  @@index([model])
+}
+
+// ─── Results (LLM-generated recommendations) ──────────────────────────
+model Result {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId       String   @unique @map("session_id") @db.Uuid
+
+  recommendations Json                                  // validated JSON shape (see lib/ai/types)
+  model           String                                // e.g. "claude-sonnet-4-6"
+  promptVersion   String   @map("prompt_version")       // e.g. "recommend@v0"
+
+  inputTokens     Int      @map("input_tokens")
+  outputTokens    Int      @map("output_tokens")
+  costUsd         Decimal  @map("cost_usd") @db.Decimal(10, 6)
+  durationMs      Int      @map("duration_ms")
+
+  langfuseTraceId String?  @map("langfuse_trace_id")    // for cross-referencing traces
+  createdAt       DateTime @default(now()) @map("created_at")
+  deletedAt       DateTime? @map("deleted_at")           // soft-delete on user request
+
+  session         Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("results")
+  @@index([createdAt])
+  @@index([model])
+}
+
+// ─── Email subscriptions (gate + follow-ups) ──────────────────────────
+// After viewing the result, the user can save it via email magic link.
+// We then send 7d/30d/90d follow-ups asking what they actually did.
+model EmailSubscription {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String?   @map("user_id") @db.Uuid
+  sessionId         String?   @map("session_id") @db.Uuid
+
+  email             String
+  magicLinkSentAt   DateTime? @map("magic_link_sent_at")
+  verifiedAt        DateTime? @map("verified_at")
+
+  followup7dSentAt  DateTime? @map("followup_7d_sent_at")
+  followup30dSentAt DateTime? @map("followup_30d_sent_at")
+  followup90dSentAt DateTime? @map("followup_90d_sent_at")
+
+  unsubscribedAt    DateTime? @map("unsubscribed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  user              User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("email_subscriptions")
+  @@index([email])
+  @@index([userId])
+}

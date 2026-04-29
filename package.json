@@ -4,12 +4,21 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "postinstall": "prisma generate",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:format": "prisma format",
+    "db:seed": "tsx scripts/seed-paths.ts"
   },
   "dependencies": {
+    "@prisma/client": "^6.2.1",
+    "csv-parse": "^5.6.0",
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -23,7 +32,9 @@
     "eslint": "^9.18.0",
     "eslint-config-next": "^15.1.6",
     "postcss": "^8.5.1",
+    "prisma": "^6.2.1",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   },
   "engines": {
