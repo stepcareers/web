@@ -1603,6 +1603,8 @@ function ResultView({
         <p className="mt-3 leading-relaxed">{result.whatWeDontKnow}</p>
       </div>
 
+      <PostResultCTA />
+
       <button
         onClick={onReset}
         type="button"
@@ -1617,6 +1619,112 @@ function ResultView({
           {JSON.stringify(meta, null, 2)}
         </pre>
       </details>
+    </section>
+  );
+}
+
+/* ─── Post-result CTA — email gate + premium intent ──────────── */
+
+function PostResultCTA() {
+  const [email, setEmail] = useState("");
+  const [wantsPremium, setWantsPremium] = useState(false);
+  const [status, setStatus] = useState<"idle" | "sending" | "ok" | "err">("idle");
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setStatus("sending");
+    setErrMsg(null);
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          mostInterestedIn: wantsPremium ? "premium" : "accountability",
+          source: "post_result",
+        }),
+      });
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => ({}))) as {
+          message?: string;
+        };
+        throw new Error(errBody.message ?? `API ${res.status}`);
+      }
+      setStatus("ok");
+    } catch (err) {
+      console.error("PostResultCTA submit error:", err);
+      setErrMsg(err instanceof Error ? err.message : "Could not save. Try again.");
+      setStatus("err");
+    }
+  }
+
+  if (status === "ok") {
+    return (
+      <section className="rounded-xl border border-ink-200/30 bg-ink-200/[0.04] p-6 dark:bg-ink-50/[0.03]">
+        <h2 className="text-lg font-semibold">You&apos;re in.</h2>
+        <p className="mt-2 text-sm text-ink-200/80 dark:text-ink-200/70">
+          We&apos;ll email you in 7 days with your first 90-day check-in.
+          {wantsPremium &&
+            " You also signaled interest in Premium — we'll reach out personally when it opens."}
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-xl border border-ink-200/30 bg-ink-200/[0.04] p-6 dark:bg-ink-50/[0.03]">
+      <h2 className="text-lg font-semibold leading-tight">
+        These are starting points. The work is in the next 90 days.
+      </h2>
+      <p className="mt-2 text-sm text-ink-200/80 dark:text-ink-200/70">
+        Drop your email and we&apos;ll send check-ins at day 7, 30, and 90 — so
+        you actually do the actions, not just read them. We&apos;ll also
+        re-evaluate your plan as your situation changes.
+      </p>
+
+      <form onSubmit={submit} className="mt-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            className="form-input flex-1"
+            disabled={status === "sending"}
+          />
+          <button
+            type="submit"
+            disabled={status === "sending" || !email.trim()}
+            className="rounded-full bg-ink-950 px-6 py-2.5 text-sm font-medium text-ink-50 transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-ink-50 dark:text-ink-950"
+          >
+            {status === "sending" ? "Saving…" : "Get my check-ins"}
+          </button>
+        </div>
+
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={wantsPremium}
+            onChange={(e) => setWantsPremium(e.target.checked)}
+            className="mt-1"
+          />
+          <span>
+            <span className="font-medium">I&apos;m interested in Premium.</span>{" "}
+            <span className="text-ink-200/70 dark:text-ink-200/60">
+              Personalized monthly 1:1 with a senior advisor, CV review tied to
+              your plan, and matched job opportunities. Early access pricing
+              when it opens.
+            </span>
+          </span>
+        </label>
+
+        {errMsg && (
+          <p className="text-xs text-red-500 dark:text-red-400">{errMsg}</p>
+        )}
+      </form>
     </section>
   );
 }

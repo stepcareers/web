@@ -19,13 +19,17 @@ const InterestEnum = z.enum([
   "cv_adaptation",
   "dream_tracking",
   "accountability",
+  "premium",
   "other",
 ]);
+
+const SourceEnum = z.enum(["landing", "post_result"]);
 
 const BodySchema = z.object({
   email: z.string().email().max(200),
   mostInterestedIn: InterestEnum.optional().nullable(),
   notes: z.string().max(800).optional(),
+  source: SourceEnum.optional().default("landing"),
 });
 
 declare global {
@@ -81,7 +85,7 @@ export async function POST(req: NextRequest) {
       body.email.toLowerCase().trim(),
       body.mostInterestedIn ?? null,
       body.notes ?? null,
-      "landing",
+      body.source,
     ]);
   } catch (err) {
     console.error("[/api/waitlist] DB error:", err);
