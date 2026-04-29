@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { Pool } from "pg";
-import { generateObject } from "ai";
+import { generateObject, NoObjectGeneratedError } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import {
   RecommendInputSchema,
@@ -228,7 +228,27 @@ export async function POST(req: NextRequest) {
       prompt: userPrompt,
     });
   } catch (err) {
-    console.error("[/api/recommend] LLM/validation error:", err);
+    // Surface as much detail as possible — schema validation failures
+    // are otherwise opaque ("did not match schema" with no field info).
+    if (NoObjectGeneratedError.isInstance(err)) {
+      console.error("[/api/recommend] NoObjectGeneratedError");
+      console.error("  cause:", err.cause);
+      console.error("  finishReason:", err.finishReason);
+      console.error("  usage:", err.usage);
+      console.error("  raw text (truncated):", err.text?.slice(0, 2000));
+      const causeMsg =
+        err.cause instanceof Error ? err.cause.message : String(err.cause);
+      return Response.json(
+        {
+          error: "llm_schema_failed",
+          message: `Model output didn't match schema. ${causeMsg}`,
+          finishReason: err.finishReason,
+          rawSnippet: err.text?.slice(0, 500),
+        },
+        { status: 502 },
+      );
+    }
+    console.error("[/api/recommend] LLM error:", err);
     return Response.json(
       { error: "llm_failed", message: String(err) },
       { status: 502 },

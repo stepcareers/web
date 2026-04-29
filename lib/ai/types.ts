@@ -11,23 +11,23 @@ import { z } from "zod";
 
 export const ConfidenceSchema = z.object({
   level: z.enum(["high", "medium", "low"]),
-  reason: z.string().min(10).max(500),
+  reason: z.string().min(5).max(600),
 });
 
 export const RecommendationSchema = z.object({
-  title: z.string().min(8).max(140),
-  rationale: z.string().min(30).max(800),
-  ninetyDayActions: z.array(z.string().min(15).max(500)).min(3).max(5),
-  twelveMonthOutcome: z.string().min(20).max(500),
-  similarProfilePattern: z.string().min(30).max(700),
+  title: z.string().min(5).max(160),
+  rationale: z.string().min(20).max(1000),
+  ninetyDayActions: z.array(z.string().min(8).max(600)).min(2).max(6),
+  twelveMonthOutcome: z.string().min(15).max(600),
+  similarProfilePattern: z.string().min(20).max(900),
   confidence: ConfidenceSchema,
-  basedOnPathIds: z.array(z.string().min(3)).min(1).max(5),
+  basedOnPathIds: z.array(z.string().min(2)).min(1).max(6),
 });
 
 export const RecommendResultSchema = z.object({
-  recommendations: z.array(RecommendationSchema).min(3).max(5),
-  honestTake: z.string().min(150).max(1800),
-  whatWeDontKnow: z.string().min(40).max(900),
+  recommendations: z.array(RecommendationSchema).min(2).max(6),
+  honestTake: z.string().min(80).max(2200),
+  whatWeDontKnow: z.string().min(20).max(1100),
 });
 
 export type Confidence = z.infer<typeof ConfidenceSchema>;
