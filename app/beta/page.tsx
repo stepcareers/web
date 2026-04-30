@@ -369,7 +369,10 @@ function loadingMessageFor(elapsedSec: number): string {
   return "Finalizing your plan — this takes a bit longer for richer profiles…";
 }
 
-const RESULT_STORAGE_KEY = "step:beta:lastResult:v1";
+// Bumped to v2 when leverage + pathEvidence became required on
+// Recommendation. v1 entries lack those fields and would crash the
+// new RecommendationCard, so we silently invalidate them.
+const RESULT_STORAGE_KEY = "step:beta:lastResult:v2";
 
 interface PersistedResult {
   data: ApiResponse;
@@ -2375,12 +2378,17 @@ function PostResultCTA() {
   );
 }
 
-function LeverageBadge({ level }: { level: Leverage }) {
-  const config = {
+function LeverageBadge({ level }: { level: Leverage | undefined }) {
+  // Defensive: if the value is missing or unknown (e.g. an older cached
+  // result without the field, or model output drift), render nothing
+  // instead of crashing on a config[undefined] lookup.
+  const configs: Record<
+    Leverage,
+    { label: string; className: string; hint: string }
+  > = {
     foundation: {
       label: "Foundation",
-      className:
-        "border-emerald-400/40 bg-emerald-400/10 text-emerald-300",
+      className: "border-emerald-400/40 bg-emerald-400/10 text-emerald-300",
       hint: "Without this, the 5-year vision is unrealistic.",
     },
     accelerator: {
@@ -2393,7 +2401,9 @@ function LeverageBadge({ level }: { level: Leverage }) {
       className: "border-ink-200/30 bg-ink-200/5 text-ink-200/70",
       hint: "Useful, low-risk, but not gating.",
     },
-  }[level];
+  };
+  const config = level ? configs[level] : undefined;
+  if (!config) return null;
   return (
     <span
       className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.className}`}
@@ -2430,12 +2440,14 @@ function RecommendationCard({
 
       <p className="mt-2 text-base leading-relaxed">{rec.rationale}</p>
 
-      <div className="mt-3 rounded-md border border-ink-200/15 bg-ink-200/[0.03] px-3 py-2 text-xs text-ink-200/70">
-        <span className="font-semibold uppercase tracking-wider text-ink-200/60">
-          Evidence ·{" "}
-        </span>
-        {rec.pathEvidence}
-      </div>
+      {rec.pathEvidence && (
+        <div className="mt-3 rounded-md border border-ink-200/15 bg-ink-200/[0.03] px-3 py-2 text-xs text-ink-200/70">
+          <span className="font-semibold uppercase tracking-wider text-ink-200/60">
+            Evidence ·{" "}
+          </span>
+          {rec.pathEvidence}
+        </div>
+      )}
 
       <div className="mt-5 flex flex-col gap-1">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
