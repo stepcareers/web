@@ -105,6 +105,8 @@ interface ProfileSnapshot {
   locationPreferred?: string;
 }
 
+type Leverage = "foundation" | "accelerator" | "optional";
+
 interface Recommendation {
   title: string;
   rationale: string;
@@ -113,6 +115,8 @@ interface Recommendation {
   similarProfilePattern: string;
   confidence: { level: "high" | "medium" | "low"; reason: string };
   basedOnPathIds: string[];
+  leverage: Leverage;
+  pathEvidence: string;
 }
 
 interface RecommendResult {
@@ -135,8 +139,12 @@ interface ApiResponse {
 
 interface RetrievedPathSummary {
   path_id: string;
+  starting_role?: string;
   next_role: string;
   transition_type: string;
+  timeframe_months?: number;
+  locale?: string;
+  similarity?: number;
 }
 
 // Deeply-partial during streaming. We render fields as they fill in.
@@ -148,6 +156,8 @@ type PartialRecommendation = Partial<{
   similarProfilePattern: string;
   confidence: { level: "high" | "medium" | "low"; reason: string };
   basedOnPathIds: string[];
+  leverage: Leverage;
+  pathEvidence: string;
 }>;
 
 type PartialResult = Partial<{
@@ -175,7 +185,12 @@ function isCompleteRec(r: PartialRecommendation): r is Recommendation {
     r.confidence?.level &&
     typeof r.confidence?.reason === "string" &&
     Array.isArray(r.basedOnPathIds) &&
-    r.basedOnPathIds.length >= 1
+    r.basedOnPathIds.length >= 1 &&
+    (r.leverage === "foundation" ||
+      r.leverage === "accelerator" ||
+      r.leverage === "optional") &&
+    typeof r.pathEvidence === "string" &&
+    r.pathEvidence.length > 0
   );
 }
 
@@ -1173,9 +1188,9 @@ function Step2(p: Step2Props) {
           <button
             type="button"
             onClick={p.addStudy}
-            className="self-start text-sm text-ink-200/70 underline hover:opacity-100"
+            className="self-start rounded-md border border-dashed border-ink-200/40 px-4 py-2 text-sm text-ink-200/85 transition hover:border-ink-50 hover:bg-ink-50/5"
           >
-            + Add another study
+            + Add another study ({p.studies.length}/{MAX_STUDIES})
           </button>
         )}
       </div>
@@ -1189,7 +1204,8 @@ function Step2(p: Step2Props) {
           </span>
         </div>
         <span className="text-xs text-ink-200/60 dark:text-ink-200/50">
-          Most recent first. Useful especially if you have 1+ years of work
+          Most recent first. Add as many as relevant — up to{" "}
+          {MAX_PAST_POSITIONS}. Useful especially if you have 1+ years of work
           experience.
         </span>
 
@@ -1270,9 +1286,11 @@ function Step2(p: Step2Props) {
           <button
             type="button"
             onClick={p.addPosition}
-            className="self-start text-sm text-ink-200/70 underline hover:opacity-100"
+            className="self-start rounded-md border border-dashed border-ink-200/40 px-4 py-2 text-sm text-ink-200/85 transition hover:border-ink-50 hover:bg-ink-50/5"
           >
-            + Add a past position
+            {p.pastPositions.length === 0
+              ? "+ Add a past position"
+              : `+ Add another past position (${p.pastPositions.length}/${MAX_PAST_POSITIONS})`}
           </button>
         )}
       </div>
@@ -1336,9 +1354,9 @@ function Step2(p: Step2Props) {
           <button
             type="button"
             onClick={p.addLanguage}
-            className="self-start text-sm text-ink-200/70 underline hover:opacity-100"
+            className="self-start rounded-md border border-dashed border-ink-200/40 px-4 py-2 text-sm text-ink-200/85 transition hover:border-ink-50 hover:bg-ink-50/5"
           >
-            + Add another language
+            + Add another language ({p.languages.length}/{MAX_LANGUAGES})
           </button>
         )}
       </div>
@@ -1980,9 +1998,11 @@ function buildPlanMarkdown(
   lines.push("## Recommendations");
   lines.push("");
   data.result.recommendations.forEach((rec, i) => {
-    lines.push(`### ${i + 1}. ${rec.title}`);
+    lines.push(`### ${i + 1}. ${rec.title}  [${rec.leverage}]`);
     lines.push("");
     lines.push(rec.rationale);
+    lines.push("");
+    lines.push(`**Evidence:** ${rec.pathEvidence}`);
     lines.push("");
     lines.push(`**90-day actions:**`);
     rec.ninetyDayActions.forEach((a) => lines.push(`- ${a}`));
@@ -2013,6 +2033,75 @@ function buildPlanMarkdown(
   );
 
   return lines.join("\n");
+}
+
+function MethodologyCard({ meta }: { meta: ApiResponse["meta"] }) {
+  const [expanded, setExpanded] = useState(false);
+  const paths = meta.retrievedPathIds ?? [];
+
+  return (
+    <section className="rounded-lg border border-ink-200/20">
+      <button
+        type="button"
+        onClick={() => setExpanded((s) => !s)}
+        className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-ink-200/[0.02]"
+        aria-expanded={expanded}
+      >
+        <span className="flex flex-col gap-0.5">
+          <span className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
+            How this plan was computed
+          </span>
+          <span className="text-sm text-ink-200/80">
+            {paths.length} curated career paths matched · grounded in real
+            patterns, not invented odds
+          </span>
+        </span>
+        <span className="text-xl text-ink-200/60">{expanded ? "−" : "+"}</span>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-ink-200/15 px-5 py-5">
+          <p className="text-sm leading-relaxed text-ink-200/85">
+            We embedded your profile (stage, field, skills, education, vision,
+            dilemma) with Voyage AI, then retrieved the {paths.length} most
+            similar real career paths from our curated dataset of 33 paths
+            using cosine distance on pgvector. Each recommendation cites
+            which of those paths supported it (see the path slugs on each
+            card).
+          </p>
+          <p className="mt-3 text-sm leading-relaxed text-ink-200/85">
+            We deliberately don&apos;t generate probability percentages.
+            With 33 paths and no control group, any &ldquo;+38% chance&rdquo;
+            number would be invented. Instead each move carries a leverage
+            tag (foundation / accelerator / optional) and an evidence count
+            from the retrieved paths — that&apos;s the honest version of
+            &ldquo;how much does this matter?&rdquo;
+          </p>
+
+          <h3 className="mt-5 text-xs font-semibold uppercase tracking-wider text-ink-200/60">
+            Matched profiles
+          </h3>
+          <ul className="mt-2 flex flex-col gap-1.5 text-sm">
+            {paths.map((id) => (
+              <li
+                key={id}
+                className="flex items-baseline gap-2 text-ink-200/85"
+              >
+                <code className="rounded bg-ink-200/10 px-1.5 py-0.5 text-xs text-ink-200/70">
+                  {id}
+                </code>
+              </li>
+            ))}
+          </ul>
+
+          <p className="mt-5 text-xs text-ink-200/55">
+            Generation: {meta.model} · {Math.round(meta.timings.totalMs / 1000)}
+            s · {meta.tokens.input ?? "?"} input tokens, {meta.tokens.output ?? "?"} output tokens · prompt {meta.promptVersion}
+          </p>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function ResultView({
@@ -2098,6 +2187,8 @@ function ResultView({
       <FillTheGapsBox onRefine={onRefine} />
 
       <PostResultCTA />
+
+      <MethodologyCard meta={meta} />
 
       <button
         onClick={onReset}
@@ -2284,6 +2375,35 @@ function PostResultCTA() {
   );
 }
 
+function LeverageBadge({ level }: { level: Leverage }) {
+  const config = {
+    foundation: {
+      label: "Foundation",
+      className:
+        "border-emerald-400/40 bg-emerald-400/10 text-emerald-300",
+      hint: "Without this, the 5-year vision is unrealistic.",
+    },
+    accelerator: {
+      label: "Accelerator",
+      className: "border-sky-400/40 bg-sky-400/10 text-sky-300",
+      hint: "Compresses the timeframe — the path can work without it.",
+    },
+    optional: {
+      label: "Optional",
+      className: "border-ink-200/30 bg-ink-200/5 text-ink-200/70",
+      hint: "Useful, low-risk, but not gating.",
+    },
+  }[level];
+  return (
+    <span
+      className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.className}`}
+      title={config.hint}
+    >
+      {config.label}
+    </span>
+  );
+}
+
 function RecommendationCard({
   rec,
   index,
@@ -2300,14 +2420,22 @@ function RecommendationCard({
 
   return (
     <article className="rounded-lg border border-ink-200/20 p-5">
-      <div className="flex items-baseline gap-3">
+      <div className="flex flex-wrap items-baseline gap-3">
         <span className="text-sm font-mono text-ink-200/40">
           {String(index).padStart(2, "0")}
         </span>
         <h3 className="text-xl font-semibold leading-tight">{rec.title}</h3>
+        <LeverageBadge level={rec.leverage} />
       </div>
 
       <p className="mt-2 text-base leading-relaxed">{rec.rationale}</p>
+
+      <div className="mt-3 rounded-md border border-ink-200/15 bg-ink-200/[0.03] px-3 py-2 text-xs text-ink-200/70">
+        <span className="font-semibold uppercase tracking-wider text-ink-200/60">
+          Evidence ·{" "}
+        </span>
+        {rec.pathEvidence}
+      </div>
 
       <div className="mt-5 flex flex-col gap-1">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
