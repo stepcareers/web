@@ -920,7 +920,7 @@ export default function BetaPage() {
             ) : (
               <button
                 type="button"
-                onClick={handleSubmit}
+                onClick={() => handleSubmit()}
                 className="rounded-full bg-ink-50 px-7 py-3 text-sm font-medium text-ink-950 transition hover:opacity-80"
               >
                 Get my next steps
