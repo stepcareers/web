@@ -547,7 +547,7 @@ export default function BetaPage() {
     if (pastPositions.length >= MAX_PAST_POSITIONS) return;
     setPastPositions((s) => [
       ...s,
-      { title: "", companyStage: "scaleup", durationMonths: 12 },
+      { title: "", companyStage: "scaleup", durationMonths: 0 },
     ]);
   }
 
@@ -578,6 +578,14 @@ export default function BetaPage() {
     if (studies.length === 0) return "Add at least 1 study entry.";
     for (const s of studies) {
       if (!s.field.trim()) return "Every study needs a field (e.g. Computer Science).";
+    }
+    for (const pos of pastPositions) {
+      if (!pos.title.trim()) {
+        return "Every past position needs a job title (or remove the empty row).";
+      }
+      if (!pos.durationMonths || pos.durationMonths < 1) {
+        return "Every past position needs years in role (or remove the empty row).";
+      }
     }
     if (languages.length === 0) return "Add at least 1 language.";
     for (const l of languages) {
@@ -1215,55 +1223,67 @@ function Step2(p: Step2Props) {
         {p.pastPositions.map((pos, i) => (
           <div
             key={i}
-            className="flex flex-col gap-2 rounded-md border border-ink-200/20 p-3"
+            className="flex flex-col gap-3 rounded-md border border-ink-200/20 p-3"
           >
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <input
-                type="text"
-                value={pos.title}
-                onChange={(e) => p.updatePosition(i, { title: e.target.value })}
-                placeholder="Job title (e.g. Junior Backend Engineer)"
-                className="form-input flex-1"
-                maxLength={120}
-              />
-              <select
-                value={pos.companyStage}
-                onChange={(e) =>
-                  p.updatePosition(i, {
-                    companyStage: e.target.value as CompanyStage,
-                  })
-                }
-                className="form-select sm:w-52"
-              >
-                {COMPANY_STAGE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="number"
-                value={
-                  pos.durationMonths
-                    ? // Show as years; if exactly N months, render as N/12.
-                      // Use up to 1 decimal so 18 months → 1.5 reads cleanly.
-                      Math.round((pos.durationMonths / 12) * 10) / 10
-                    : ""
-                }
-                onChange={(e) => {
-                  const years = Number(e.target.value);
-                  if (Number.isNaN(years) || years <= 0) return;
-                  // Schema stores months — round to nearest month.
-                  p.updatePosition(i, {
-                    durationMonths: Math.max(1, Math.round(years * 12)),
-                  });
-                }}
-                placeholder="Years (e.g. 2.5)"
-                min={0.1}
-                max={50}
-                step={0.5}
-                className="form-input w-full sm:w-32"
-              />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="flex flex-1 flex-col gap-1">
+                <span className="text-[11px] uppercase tracking-wider text-ink-200/55">
+                  Job title
+                </span>
+                <input
+                  type="text"
+                  value={pos.title}
+                  onChange={(e) => p.updatePosition(i, { title: e.target.value })}
+                  placeholder="e.g. Junior Backend Engineer"
+                  className="form-input"
+                  maxLength={120}
+                />
+              </label>
+              <label className="flex flex-col gap-1 sm:w-52">
+                <span className="text-[11px] uppercase tracking-wider text-ink-200/55">
+                  Company type
+                </span>
+                <select
+                  value={pos.companyStage}
+                  onChange={(e) =>
+                    p.updatePosition(i, {
+                      companyStage: e.target.value as CompanyStage,
+                    })
+                  }
+                  className="form-select"
+                >
+                  {COMPANY_STAGE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 sm:w-36">
+                <span className="text-[11px] uppercase tracking-wider text-ink-200/55">
+                  Years in role
+                </span>
+                <input
+                  type="number"
+                  value={
+                    pos.durationMonths
+                      ? Math.round((pos.durationMonths / 12) * 10) / 10
+                      : ""
+                  }
+                  onChange={(e) => {
+                    const years = Number(e.target.value);
+                    if (Number.isNaN(years) || years <= 0) return;
+                    p.updatePosition(i, {
+                      durationMonths: Math.max(1, Math.round(years * 12)),
+                    });
+                  }}
+                  placeholder="e.g. 2.5"
+                  min={0.1}
+                  max={50}
+                  step={0.5}
+                  className="form-input"
+                />
+              </label>
             </div>
             <input
               type="text"
