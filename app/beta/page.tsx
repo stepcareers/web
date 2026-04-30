@@ -1781,23 +1781,72 @@ function CvUpload({
   onSkip: () => void;
 }) {
   const [text, setText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [status, setStatus] = useState<"idle" | "parsing" | "err">("idle");
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  const trimmed = text.trim();
-  const tooShort = trimmed.length > 0 && trimmed.length < 100;
-  const ready = trimmed.length >= 100 && status !== "parsing";
+  const trimmedText = text.trim();
+  const hasFile = !!file;
+  const hasText = trimmedText.length >= 100;
+  const tooShortText = trimmedText.length > 0 && !hasText;
+  const ready = (hasFile || hasText) && status !== "parsing";
+
+  function pickFile(f: File | null) {
+    setErrMsg(null);
+    if (!f) {
+      setFile(null);
+      return;
+    }
+    const lower = f.name.toLowerCase();
+    const okType =
+      f.type === "application/pdf" ||
+      f.type ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      lower.endsWith(".pdf") ||
+      lower.endsWith(".docx");
+    if (!okType) {
+      setErrMsg("Unsupported file type. Use PDF or DOCX (or paste text).");
+      setStatus("err");
+      return;
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      setErrMsg("File is too large. Max 10MB.");
+      setStatus("err");
+      return;
+    }
+    setFile(f);
+    setStatus("idle");
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const f = e.dataTransfer.files?.[0] ?? null;
+    pickFile(f);
+  }
 
   async function submit() {
     if (!ready) return;
     setStatus("parsing");
     setErrMsg(null);
     try {
-      const res = await fetch("/api/parse-cv", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: trimmed }),
-      });
+      let res: Response;
+      // File takes precedence if both are present.
+      if (file) {
+        const formData = new FormData();
+        formData.append("file", file);
+        res = await fetch("/api/parse-cv", {
+          method: "POST",
+          body: formData,
+        });
+      } else {
+        res = await fetch("/api/parse-cv", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: trimmedText }),
+        });
+      }
       if (!res.ok) {
         const errBody = (await res.json().catch(() => ({}))) as {
           message?: string;
@@ -1824,26 +1873,84 @@ function CvUpload({
           Have a CV? Skip the typing.
         </h1>
         <p className="mt-3 text-base text-ink-200/90 dark:text-ink-200/70">
-          Paste the text and we&apos;ll pre-fill the form: stage, field,
-          skills, education, past positions, languages. You review and edit in
-          the next step. Takes 5 seconds.
+          Drop a PDF or DOCX, or paste the text. We&apos;ll pre-fill the form
+          — stage, field, skills, education, past positions, languages. You
+          review and edit in the next step. Takes 5 seconds.
         </p>
       </div>
 
+      {/* Drop zone */}
+      <label
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-10 text-center transition ${
+          dragOver
+            ? "border-ink-50 bg-ink-50/[0.06]"
+            : file
+              ? "border-emerald-400/50 bg-emerald-400/[0.04]"
+              : "border-ink-200/35 bg-ink-200/[0.02] hover:border-ink-200/60"
+        }`}
+      >
+        <input
+          type="file"
+          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+          className="sr-only"
+          disabled={status === "parsing"}
+        />
+        {file ? (
+          <>
+            <span className="text-base font-medium text-emerald-300">
+              ✓ {file.name}
+            </span>
+            <span className="text-xs text-ink-200/60">
+              {(file.size / 1024).toFixed(0)} KB · click to change file
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="text-base font-medium">
+              Drop your CV here, or click to choose
+            </span>
+            <span className="text-xs text-ink-200/55">
+              PDF or DOCX · up to 10MB
+            </span>
+          </>
+        )}
+      </label>
+
+      {/* Or paste text */}
       <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-3 text-xs uppercase tracking-wider text-ink-200/40">
+          <span className="h-px flex-1 bg-ink-200/15" />
+          <span>or paste text</span>
+          <span className="h-px flex-1 bg-ink-200/15" />
+        </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Paste your CV here. LinkedIn export, plain text, or a copy-paste from your CV doc — all work."
-          rows={10}
+          placeholder="Paste your CV here. LinkedIn export, plain text, or a copy-paste from your CV doc."
+          rows={6}
           maxLength={20000}
-          className="form-input min-h-[14rem] text-sm leading-relaxed"
-          disabled={status === "parsing"}
+          className="form-input min-h-[8rem] text-sm leading-relaxed"
+          disabled={status === "parsing" || hasFile}
         />
         <div className="flex items-center justify-between text-xs text-ink-200/50">
           <span>
-            {trimmed.length}/20000
-            {tooShort && " · need at least 100 characters"}
+            {hasFile ? (
+              <span className="text-ink-200/40">
+                Disabled — file selected above
+              </span>
+            ) : (
+              <>
+                {trimmedText.length}/20000
+                {tooShortText && " · need at least 100 characters"}
+              </>
+            )}
           </span>
           <span>Privacy: processed in memory, not stored.</span>
         </div>
@@ -1877,9 +1984,9 @@ function CvUpload({
       </div>
 
       <p className="text-xs leading-relaxed text-ink-200/50">
-        Tip: if you only have a PDF, copy-paste its text. PDF upload is on the
-        roadmap. The parser is conservative — it only fills what it can read,
-        leaves the rest blank for you to add.
+        The parser is conservative — it only fills what it can read, leaves
+        the rest blank for you to add. If your PDF is a scan/image (not
+        text-selectable), it can&apos;t read it; paste the text instead.
       </p>
     </section>
   );
