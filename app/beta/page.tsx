@@ -607,12 +607,16 @@ export default function BetaPage() {
   }
 
   /* ─ Submit ─ */
-  async function handleSubmit() {
+  async function handleSubmit(additionalContextOverride?: string) {
     setErrorMsg(null);
-    const err = validateStep3();
-    if (err) {
-      setErrorMsg(err);
-      return;
+    // Validate only on first submit (form path), not when refining from
+    // the result view — the original payload is already valid.
+    if (!additionalContextOverride) {
+      const err = validateStep3();
+      if (err) {
+        setErrorMsg(err);
+        return;
+      }
     }
 
     const currentSalaryNum = salaryCurrent ? Number(salaryCurrent) : undefined;
@@ -645,6 +649,7 @@ export default function BetaPage() {
       },
       futureSelf: futureSelf.trim() || undefined,
       dilemma: dilemma.trim() || undefined,
+      additionalContext: additionalContextOverride?.trim() || undefined,
       locale: "en" as const,
     };
 
@@ -663,13 +668,19 @@ export default function BetaPage() {
     setElapsedSec(0);
     setRetrievedPaths(null);
     setPartialResult(null);
-    track("form_submitted", {
-      stage,
-      field: fieldVal,
-      hasFutureSelf: !!futureSelf.trim(),
-      hasDilemma: !!dilemma.trim(),
-      hasCurrentSalary: !!currentSalaryNum,
-    });
+    if (additionalContextOverride) {
+      track("plan_refined", {
+        contextLength: additionalContextOverride.trim().length,
+      });
+    } else {
+      track("form_submitted", {
+        stage,
+        field: fieldVal,
+        hasFutureSelf: !!futureSelf.trim(),
+        hasDilemma: !!dilemma.trim(),
+        hasCurrentSalary: !!currentSalaryNum,
+      });
+    }
 
     try {
       const res = await fetch("/api/recommend", {
@@ -939,6 +950,7 @@ export default function BetaPage() {
           data={result}
           profile={profileSnapshot}
           onReset={handleReset}
+          onRefine={(additional) => handleSubmit(additional)}
         />
       )}
 
@@ -2007,10 +2019,12 @@ function ResultView({
   data,
   profile,
   onReset,
+  onRefine,
 }: {
   data: ApiResponse;
   profile: ProfileSnapshot | null;
   onReset: () => void;
+  onRefine: (additional: string) => void;
 }) {
   const { result, meta } = data;
   const [copyState, setCopyState] = useState<"idle" | "copied" | "err">("idle");
@@ -2081,6 +2095,8 @@ function ResultView({
         <p className="mt-3 leading-relaxed">{result.whatWeDontKnow}</p>
       </div>
 
+      <FillTheGapsBox onRefine={onRefine} />
+
       <PostResultCTA />
 
       <button
@@ -2098,6 +2114,62 @@ function ResultView({
         </pre>
       </details>
     </section>
+  );
+}
+
+/* ─── Fill-the-gaps box — refines plan with additional context ─── */
+
+function FillTheGapsBox({
+  onRefine,
+}: {
+  onRefine: (additional: string) => void;
+}) {
+  const [text, setText] = useState("");
+
+  const trimmed = text.trim();
+  const tooShort = trimmed.length > 0 && trimmed.length < 20;
+  const ready = trimmed.length >= 20;
+
+  function submit() {
+    if (!ready) return;
+    onRefine(trimmed);
+  }
+
+  return (
+    <div className="rounded-lg border border-emerald-400/30 bg-emerald-400/[0.03] p-5">
+      <h3 className="text-base font-semibold leading-tight">
+        Fill in any gaps to sharpen the plan
+      </h3>
+      <p className="mt-2 text-sm text-ink-200/70">
+        Anything we missed above? Add the missing context — training programme
+        constraints, prior product exposure, family situation, risk tolerance,
+        anything. We&apos;ll regenerate the plan with it.
+      </p>
+
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="e.g. I'm in UKFPO Year 2 with a 24-month training contract — I can only exit cleanly at the end of August. I've also been doing a digital health QI project on the side for 6 months."
+        rows={4}
+        maxLength={1500}
+        className="form-input mt-4 text-sm"
+      />
+
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <span className="text-xs text-ink-200/50">
+          {trimmed.length}/1500
+          {tooShort && " · need at least 20 characters"}
+        </span>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!ready}
+          className="rounded-full bg-ink-50 px-5 py-2 text-sm font-medium text-ink-950 transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Refine my plan with this →
+        </button>
+      </div>
+    </div>
   );
 }
 

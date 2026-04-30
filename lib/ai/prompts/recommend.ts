@@ -194,6 +194,8 @@ export function buildRecommendUserPrompt({
     })
     .join("\n\n");
 
+  const additional = profile.additionalContext?.trim();
+
   return `## USER PROFILE — WHERE THEY ARE
 
 - Stage:     ${profile.stage}
@@ -215,7 +217,11 @@ export function buildRecommendUserPrompt({
 - Priority order: ${formatPriorityOrder(profile)}
 - 5-year vision:  ${future}
 - Dilemma:        ${dilemma}
-
+${
+  additional
+    ? `\n## USER REFINEMENT (filled in after seeing the first plan)\n\nThe user is responding to your earlier "what we don't know" section. This is authoritative new info — weight it heavily and use it to make recommendations more specific:\n\n${additional}\n`
+    : ""
+}
 ## RETRIEVED CAREER PATHS (top ${retrievedPaths.length}, ranked by similarity)
 
 ${pathsBlock}

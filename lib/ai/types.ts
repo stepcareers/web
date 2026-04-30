@@ -184,6 +184,11 @@ export const RecommendInputSchema = z.object({
   futureSelf: z.string().max(800).optional(),
   dilemma: z.string().max(500).optional(),
 
+  // Refinement context — typed by the user after seeing the first plan,
+  // in response to "what we don't know about you". Fills gaps the model
+  // flagged. Treated as authoritative additional info.
+  additionalContext: z.string().max(1500).optional(),
+
   // System
   locale: z.enum(["en", "it"]).default("en"),
 });
