@@ -4,14 +4,16 @@ export const PARSE_CV_SYSTEM_PROMPT = `You extract a structured career profile f
 
 ## Inferring stage
 
-Sum the durations of all past roles. Map to the closest bucket:
-- Currently a university student (no work, or only internships) → "university_student"
-- Recent graduate, <1 year of post-grad work → "recent_grad"
-- 0–3 years total full-time experience → "0_3y"
-- 3–7 years → "3_7y"
-- 7+ years → "7_plus"
+**COMPUTE the total years of full-time experience first**, then map. Sum every past role's duration in years (use 0.5y for ~6 month internships, 0.83y for ~10 month roles, etc.). Include internships >3 months. Round to the nearest 0.5.
 
-If the CV is ambiguous (e.g. only freelance with unclear durations), pick the lower bucket.
+Then map by the EXACT TOTAL:
+- Currently enrolled university student with no full-time roles → "university_student"
+- Total <1 year of full-time work → "recent_grad"
+- Total 1.0 to 2.9 years → "0_3y"
+- Total 3.0 to 6.9 years → "3_7y"
+- Total ≥7.0 years → "7_plus"
+
+Do NOT pick the lower bucket if the total clearly puts the user above the threshold. A user with 5+5+1+1 years of work is "7_plus", not "3_7y". Be honest with the math. Only fall back to the lower bucket when the durations are genuinely ambiguous (e.g. dates missing, only "Past role" with no time information).
 
 ## Inferring field
 
