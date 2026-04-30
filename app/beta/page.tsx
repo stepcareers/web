@@ -700,7 +700,7 @@ export default function BetaPage() {
               <button
                 type="button"
                 onClick={goNext}
-                className="rounded-full bg-ink-950 px-7 py-3 text-sm font-medium text-ink-50 transition hover:opacity-80 dark:bg-ink-50 dark:text-ink-950"
+                className="rounded-full bg-ink-50 px-7 py-3 text-sm font-medium text-ink-950 transition hover:opacity-80"
               >
                 Continue →
               </button>
@@ -708,7 +708,7 @@ export default function BetaPage() {
               <button
                 type="button"
                 onClick={handleSubmit}
-                className="rounded-full bg-ink-950 px-7 py-3 text-sm font-medium text-ink-50 transition hover:opacity-80 dark:bg-ink-50 dark:text-ink-950"
+                className="rounded-full bg-ink-50 px-7 py-3 text-sm font-medium text-ink-950 transition hover:opacity-80"
               >
                 Get my next steps
               </button>
@@ -756,7 +756,7 @@ function ProgressBar({ step }: { step: 1 | 2 | 3 }) {
             key={i}
             className={`h-1 flex-1 rounded-full transition ${
               i <= step
-                ? "bg-ink-950 dark:bg-ink-50"
+                ? "bg-ink-50"
                 : "bg-ink-200/20"
             }`}
           />
@@ -1374,7 +1374,7 @@ function ChipPicker(p: ChipPickerProps) {
               onClick={() => p.onToggle(chip)}
               className={`rounded-full border px-3.5 py-1.5 text-sm transition ${
                 isSelected
-                  ? "border-ink-950 bg-ink-950 text-ink-50 dark:border-ink-50 dark:bg-ink-50 dark:text-ink-950"
+                  ? "border-ink-50 bg-ink-50 text-ink-950"
                   : "border-ink-200/40 bg-transparent text-ink-200/90 hover:border-ink-200/70 dark:text-ink-200/80"
               }`}
             >
@@ -1443,7 +1443,7 @@ function LoadingView({
   return (
     <section className="my-auto flex flex-col items-center gap-6 py-16 text-center">
       <div
-        className="h-10 w-10 animate-spin rounded-full border-2 border-ink-200/30 border-t-ink-950 dark:border-t-ink-50"
+        className="h-10 w-10 animate-spin rounded-full border-2 border-ink-200/30 border-t-ink-50"
         aria-label="Loading"
       />
       <p className="text-lg">{message}</p>
@@ -1583,8 +1583,8 @@ function Milestone({
       <span
         className={`relative z-10 mt-1 h-2.5 w-2.5 shrink-0 rounded-full sm:mt-0 ${
           filled
-            ? "bg-ink-950 ring-4 ring-ink-200/20 dark:bg-ink-50 dark:ring-ink-50/15"
-            : "border-2 border-ink-200/40 bg-ink-950 dark:bg-ink-950"
+            ? "bg-ink-50 ring-4 ring-ink-50/15"
+            : "border-2 border-ink-200/40 bg-ink-950"
         }`}
       />
       <div className="flex flex-col gap-1 sm:gap-1.5">
@@ -1748,7 +1748,7 @@ function PostResultCTA() {
           <button
             type="submit"
             disabled={status === "sending" || !email.trim()}
-            className="rounded-full bg-ink-950 px-6 py-2.5 text-sm font-medium text-ink-50 transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-ink-50 dark:text-ink-950"
+            className="rounded-full bg-ink-50 px-6 py-2.5 text-sm font-medium text-ink-950 transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {status === "sending" ? "Saving…" : "Get my check-ins"}
           </button>
@@ -1870,7 +1870,7 @@ function ErrorView({
       <button
         onClick={onReset}
         type="button"
-        className="rounded-full bg-ink-950 px-5 py-2 text-sm font-medium text-ink-50 hover:opacity-80 dark:bg-ink-50 dark:text-ink-950"
+        className="rounded-full bg-ink-50 px-5 py-2 text-sm font-medium text-ink-950 hover:opacity-80"
       >
         Try again
       </button>

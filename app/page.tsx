@@ -250,7 +250,7 @@ export default function LandingPage() {
                     key={opt.value}
                     className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 transition ${
                       interest === opt.value
-                        ? "border-ink-950 bg-ink-200/10 dark:border-ink-50"
+                        ? "border-ink-50 bg-ink-200/10"
                         : "border-ink-200/30 hover:border-ink-200/60"
                     }`}
                   >
