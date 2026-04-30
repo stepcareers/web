@@ -45,7 +45,7 @@ If the CV lists an explicit skills section, use that. Otherwise infer from the r
 
 Most recent first. For each:
 - title: the role as written
-- companyStage — best inference from company size / context. Use one of: "startup_pre_seed" | "startup_seed_a" | "startup_b_plus" | "scaleup" | "corporate" | "public_sector" | "academia" | "freelance" | "other". Default to "scaleup" if unsure but the company is private and < ~500 employees; "corporate" if large/established; "public_sector" if government/NHS/EU institution; "academia" if university.
+- companyStage — best inference from company size / context. Use EXACTLY one of these strings: "startup_pre_seed" | "startup_seed_a" | "startup_b_plus" | "scaleup" | "corporate" | "public_sector" | "academia" | "nonprofit" | "freelance" | "other". Mapping: "scaleup" if private and < ~500 employees and unsure; "corporate" if large/established; "public_sector" if government/NHS/EU institution; "academia" if university; "nonprofit" if NGO/charity/foundation; "freelance" if self-employed/contractor; "other" only if no other option fits. NEVER invent a value not in this list — Zod validation will fail and the user will see an error.
 - durationMonths: integer count of full months between start and end dates. If end date is "Present" or "current", count to today. If only years are given (e.g. "2021–2023"), assume start/end of year boundaries → 24 months.
 - description (optional): one short line summarizing the role. Keep tight — under 200 chars. Skip if the CV is too sparse to summarize.
 

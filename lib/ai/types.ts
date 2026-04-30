@@ -128,6 +128,7 @@ export const CompanyStageEnum = z.enum([
   "corporate",
   "public_sector",
   "academia",
+  "nonprofit",
   "freelance",
   "other",
 ]);

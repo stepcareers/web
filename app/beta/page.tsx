@@ -75,6 +75,7 @@ type CompanyStage =
   | "corporate"
   | "public_sector"
   | "academia"
+  | "nonprofit"
   | "freelance"
   | "other";
 
@@ -248,6 +249,7 @@ const COMPANY_STAGE_OPTIONS: Array<{ value: CompanyStage; label: string }> = [
   { value: "corporate", label: "Corporate" },
   { value: "public_sector", label: "Public sector" },
   { value: "academia", label: "Academia" },
+  { value: "nonprofit", label: "Nonprofit / NGO" },
   { value: "freelance", label: "Freelance / self-employed" },
   { value: "other", label: "Other" },
 ];
