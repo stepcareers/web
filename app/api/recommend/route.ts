@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { Pool } from "pg";
-import { generateObject, NoObjectGeneratedError } from "ai";
+import { streamObject, NoObjectGeneratedError } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import {
   RecommendInputSchema,
@@ -15,34 +15,28 @@ import {
 /**
  * POST /api/recommend
  *
- * Body: RecommendInput JSON (stage, field, skills, interests, dilemma?, locale)
- * Returns: { result: RecommendResult, meta: { ... } }
+ * Body: RecommendInput JSON.
+ * Streams NDJSON: each line is one of
+ *   { "type": "retrieved", "paths": [{path_id, next_role, transition_type}, ...] }
+ *   { "type": "partial",   "data": <Partial<RecommendResult>> }
+ *   { "type": "final",     "result": <RecommendResult>, "meta": {...} }
+ *   { "type": "error",     "message": <string>, "rawSnippet"?: <string> }
  *
- * Pipeline:
- *   1. Validate body with Zod
- *   2. Embed user query via Voyage
- *   3. Retrieve top K paths via pgvector cosine
- *   4. Build prompt, call Claude with structured output
- *   5. Validate output, return JSON + meta
- *
- * Pure-pg under the hood (no Prisma client at runtime — keeps cold start
- * small and avoids the Windows-ARM binary that broke us locally).
+ * The frontend reads line-by-line and renders progressively. Crucial UX
+ * win: at second 1 the user already sees which curated paths we matched,
+ * at ~5–10s the first recommendation card starts filling in, by ~30s
+ * the whole thing is done. Replaces the previous one-shot generateObject
+ * which made users stare at a 60s spinner.
  */
 
 export const runtime = "nodejs";
-export const maxDuration = 60; // Vercel Hobby cap; Sonnet 4.5 can exceed — see TODO
+export const maxDuration = 60; // Vercel Hobby cap
 
 const VOYAGE_API_URL = "https://api.voyageai.com/v1/embeddings";
 const VOYAGE_MODEL = "voyage-3-large";
 const VOYAGE_DIMENSIONS = 1024;
 const MODEL_KEY = `${VOYAGE_MODEL}-${VOYAGE_DIMENSIONS}`;
 const TOP_K = 5;
-// Sonnet 4.6 → newer than 4.5, generally faster, and substantially more
-// reliable at filling complete structured outputs (Haiku 4.5 was dropping
-// the trailing honestTake/whatWeDontKnow fields in tool-call mode). With
-// the prompt now demanding concise recommendations, total time fits in
-// Vercel Hobby's 60s cap in practice; if we see timeouts, options are
-// Vercel Pro (300s cap) or streamObject for partial UI.
 const CLAUDE_MODEL = "claude-sonnet-4-6";
 
 /* ─── Pool singleton ────────────────────────────────────────────────── */
@@ -149,7 +143,7 @@ function profileToQueryText(p: {
 /* ─── Route handler ─────────────────────────────────────────────────── */
 
 export async function POST(req: NextRequest) {
-  // 1. Parse + validate body
+  // 1. Parse + validate body (non-streaming — fast, fail fast)
   let raw: unknown;
   try {
     raw = await req.json();
@@ -174,7 +168,7 @@ export async function POST(req: NextRequest) {
 
   const t0 = Date.now();
 
-  // 2. Embed
+  // 2. Embed (non-streaming — fast, deterministic)
   let queryEmbedding: number[];
   try {
     queryEmbedding = await embedQuery(profileToQueryText(profile));
@@ -187,10 +181,24 @@ export async function POST(req: NextRequest) {
   }
   const tEmbed = Date.now() - t0;
 
-  // 3. Retrieve
+  // 3. Retrieve (also fast, ~50ms with pgvector)
   const queryVector = `[${queryEmbedding.join(",")}]`;
   const pool = getPool();
-  let retrievedPaths;
+  let retrievedPaths: Array<{
+    path_id: string;
+    locale: string;
+    starting_stage: string;
+    starting_field: string;
+    starting_role: string;
+    transition_type: string;
+    next_role: string;
+    timeframe_months: number;
+    key_actions: string[];
+    skills_gained: string[];
+    outcome_24m: string;
+    confidence: string;
+    tags: string[];
+  }>;
   try {
     const result = await pool.query(RETRIEVE_SQL, [
       queryVector,
@@ -214,74 +222,100 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 4. LLM
+  // 4. Stream LLM output as NDJSON
   const userPrompt = buildRecommendUserPrompt({
     profile,
     retrievedPaths,
   });
 
-  let llmResult;
   const tLlmStart = Date.now();
-  try {
-    llmResult = await generateObject({
-      model: anthropic(CLAUDE_MODEL),
-      schema: RecommendResultSchema,
-      system: RECOMMEND_SYSTEM_PROMPT,
-      prompt: userPrompt,
-      // Output is a structured JSON with up to 5 recommendations + honestTake
-      // + whatWeDontKnow. Empirically 4 verbose recs alone hit ~3k tokens, so
-      // we give Haiku a generous ceiling to avoid truncation that drops the
-      // trailing required fields.
-      maxOutputTokens: 8000,
-      temperature: 0.5,
-    });
-  } catch (err) {
-    // Surface as much detail as possible — schema validation failures
-    // are otherwise opaque ("did not match schema" with no field info).
-    if (NoObjectGeneratedError.isInstance(err)) {
-      console.error("[/api/recommend] NoObjectGeneratedError");
-      console.error("  cause:", err.cause);
-      console.error("  finishReason:", err.finishReason);
-      console.error("  usage:", err.usage);
-      console.error("  raw text (truncated):", err.text?.slice(0, 2000));
-      const causeMsg =
-        err.cause instanceof Error ? err.cause.message : String(err.cause);
-      return Response.json(
-        {
-          error: "llm_schema_failed",
-          message: `Model output didn't match schema. ${causeMsg}`,
-          finishReason: err.finishReason,
-          rawSnippet: err.text?.slice(0, 500),
-        },
-        { status: 502 },
-      );
-    }
-    console.error("[/api/recommend] LLM error:", err);
-    return Response.json(
-      { error: "llm_failed", message: String(err) },
-      { status: 502 },
-    );
-  }
-  const tLlm = Date.now() - tLlmStart;
 
-  // 5. Return
-  return Response.json({
-    result: llmResult.object,
-    meta: {
-      model: CLAUDE_MODEL,
-      promptVersion: RECOMMEND_PROMPT_VERSION,
-      retrievalCount: retrievedPaths.length,
-      retrievedPathIds: retrievedPaths.map((p) => p.path_id),
-      tokens: {
-        input: llmResult.usage?.inputTokens ?? null,
-        output: llmResult.usage?.outputTokens ?? null,
-      },
-      timings: {
-        embedMs: tEmbed,
-        retrieveMs: tRetrieve,
-        llmMs: tLlm,
-        totalMs: Date.now() - t0,
-      },
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      function send(obj: unknown) {
+        controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+      }
+
+      // First event: retrieved paths. Lets the client show "found 5
+      // similar profiles" within the first second of the stream.
+      send({
+        type: "retrieved",
+        paths: retrievedPaths.map((p) => ({
+          path_id: p.path_id,
+          next_role: p.next_role,
+          transition_type: p.transition_type,
+        })),
+      });
+
+      try {
+        const llmStream = streamObject({
+          model: anthropic(CLAUDE_MODEL),
+          schema: RecommendResultSchema,
+          system: RECOMMEND_SYSTEM_PROMPT,
+          prompt: userPrompt,
+          maxOutputTokens: 8000,
+          temperature: 0.5,
+        });
+
+        for await (const partial of llmStream.partialObjectStream) {
+          send({ type: "partial", data: partial });
+        }
+
+        const finalObject = await llmStream.object;
+        const usage = await llmStream.usage;
+
+        send({
+          type: "final",
+          result: finalObject,
+          meta: {
+            model: CLAUDE_MODEL,
+            promptVersion: RECOMMEND_PROMPT_VERSION,
+            retrievalCount: retrievedPaths.length,
+            retrievedPathIds: retrievedPaths.map((p) => p.path_id),
+            tokens: {
+              input: usage?.inputTokens ?? null,
+              output: usage?.outputTokens ?? null,
+            },
+            timings: {
+              embedMs: tEmbed,
+              retrieveMs: tRetrieve,
+              llmMs: Date.now() - tLlmStart,
+              totalMs: Date.now() - t0,
+            },
+          },
+        });
+      } catch (err) {
+        if (NoObjectGeneratedError.isInstance(err)) {
+          console.error("[/api/recommend] NoObjectGeneratedError");
+          console.error("  cause:", err.cause);
+          console.error("  finishReason:", err.finishReason);
+          console.error("  raw text (truncated):", err.text?.slice(0, 2000));
+          const causeMsg =
+            err.cause instanceof Error ? err.cause.message : String(err.cause);
+          send({
+            type: "error",
+            message: `Model output didn't match schema. ${causeMsg}`,
+            rawSnippet: err.text?.slice(0, 500),
+          });
+        } else {
+          console.error("[/api/recommend] LLM stream error:", err);
+          send({
+            type: "error",
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
     },
   });
 }

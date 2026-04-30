@@ -2,6 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import posthog from "posthog-js";
+
+// Thin wrapper so capture call sites stay short and we have a single place
+// to short-circuit if PostHog isn't initialized (key missing in env).
+function track(event: string, properties?: Record<string, unknown>) {
+  if (typeof window === "undefined") return;
+  try {
+    posthog.capture(event, properties);
+  } catch {
+    /* ignore — SDK not initialized or blocked */
+  }
+}
 
 /**
  * Step beta — 3-step onboarding form on top of the /api/recommend pipeline.
@@ -119,6 +131,52 @@ interface ApiResponse {
     tokens: { input: number | null; output: number | null };
     timings: { embedMs: number; retrieveMs: number; llmMs: number; totalMs: number };
   };
+}
+
+interface RetrievedPathSummary {
+  path_id: string;
+  next_role: string;
+  transition_type: string;
+}
+
+// Deeply-partial during streaming. We render fields as they fill in.
+type PartialRecommendation = Partial<{
+  title: string;
+  rationale: string;
+  ninetyDayActions: string[];
+  twelveMonthOutcome: string;
+  similarProfilePattern: string;
+  confidence: { level: "high" | "medium" | "low"; reason: string };
+  basedOnPathIds: string[];
+}>;
+
+type PartialResult = Partial<{
+  recommendations: PartialRecommendation[];
+  honestTake: string;
+  whatWeDontKnow: string;
+}>;
+
+/** A recommendation is "renderable" once every required field is present.
+ * During streaming we only show fully-formed cards; partials show as a
+ * skeleton row instead. */
+function isCompleteRec(r: PartialRecommendation): r is Recommendation {
+  return !!(
+    r &&
+    typeof r.title === "string" &&
+    r.title.length > 0 &&
+    typeof r.rationale === "string" &&
+    r.rationale.length > 0 &&
+    Array.isArray(r.ninetyDayActions) &&
+    r.ninetyDayActions.length >= 2 &&
+    typeof r.twelveMonthOutcome === "string" &&
+    r.twelveMonthOutcome.length > 0 &&
+    typeof r.similarProfilePattern === "string" &&
+    r.similarProfilePattern.length > 0 &&
+    r.confidence?.level &&
+    typeof r.confidence?.reason === "string" &&
+    Array.isArray(r.basedOnPathIds) &&
+    r.basedOnPathIds.length >= 1
+  );
 }
 
 /* ─── Option lists ─────────────────────────────────────────────── */
@@ -319,9 +377,9 @@ const CURRENCY_SYMBOL: Record<Currency, string> = {
 /* ─── Page component ──────────────────────────────────────────── */
 
 export default function BetaPage() {
-  const [phase, setPhase] = useState<"form" | "loading" | "result" | "error">(
-    "form",
-  );
+  const [phase, setPhase] = useState<
+    "form" | "loading" | "streaming" | "result" | "error"
+  >("form");
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Step 1
@@ -359,11 +417,13 @@ export default function BetaPage() {
   const [result, setResult] = useState<ApiResponse | null>(null);
   const [profileSnapshot, setProfileSnapshot] = useState<ProfileSnapshot | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
+  // Streaming state: populated as the NDJSON events arrive.
+  const [retrievedPaths, setRetrievedPaths] = useState<RetrievedPathSummary[] | null>(null);
+  const [partialResult, setPartialResult] = useState<PartialResult | null>(null);
 
-  // Tick elapsed seconds while loading. Loading messages are derived from
-  // elapsedSec via loadingMessageFor() — see LoadingView.
+  // Tick elapsed seconds while loading or streaming.
   useEffect(() => {
-    if (phase !== "loading") return;
+    if (phase !== "loading" && phase !== "streaming") return;
     const t = setInterval(() => {
       setElapsedSec((s) => s + 1);
     }, 1000);
@@ -528,6 +588,7 @@ export default function BetaPage() {
         setErrorMsg(err);
         return;
       }
+      track("form_step_completed", { step: 1 });
       setStep(2);
     } else if (step === 2) {
       const err = validateStep2();
@@ -535,6 +596,7 @@ export default function BetaPage() {
         setErrorMsg(err);
         return;
       }
+      track("form_step_completed", { step: 2 });
       setStep(3);
     }
   }
@@ -599,6 +661,15 @@ export default function BetaPage() {
 
     setPhase("loading");
     setElapsedSec(0);
+    setRetrievedPaths(null);
+    setPartialResult(null);
+    track("form_submitted", {
+      stage,
+      field: fieldVal,
+      hasFutureSelf: !!futureSelf.trim(),
+      hasDilemma: !!dilemma.trim(),
+      hasCurrentSalary: !!currentSalaryNum,
+    });
 
     try {
       const res = await fetch("/api/recommend", {
@@ -606,6 +677,7 @@ export default function BetaPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
       if (!res.ok) {
         const errBody = (await res.json().catch(() => ({}))) as {
           message?: string;
@@ -613,15 +685,76 @@ export default function BetaPage() {
         };
         throw new Error(errBody.message ?? errBody.error ?? `API ${res.status}`);
       }
-      const data = (await res.json()) as ApiResponse;
-      setResult(data);
+
+      if (!res.body) {
+        throw new Error("Response has no streaming body");
+      }
+
+      // Read NDJSON stream line by line. Each line is one event:
+      // retrieved | partial | final | error.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalData: ApiResponse | null = null;
+      let streamError: string | null = null;
+
+      // Yield once a microtask before the first read so React commits the
+      // "loading" phase render — avoids skipping straight to streaming
+      // before the loading view ever shows.
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let msg: {
+            type: string;
+            paths?: RetrievedPathSummary[];
+            data?: PartialResult;
+            result?: RecommendResult;
+            meta?: ApiResponse["meta"];
+            message?: string;
+          };
+          try {
+            msg = JSON.parse(line);
+          } catch (parseErr) {
+            console.warn("Failed to parse stream line:", line, parseErr);
+            continue;
+          }
+
+          if (msg.type === "retrieved" && msg.paths) {
+            setRetrievedPaths(msg.paths);
+            setPhase("streaming");
+          } else if (msg.type === "partial" && msg.data) {
+            setPartialResult(msg.data);
+          } else if (msg.type === "final" && msg.result && msg.meta) {
+            finalData = { result: msg.result, meta: msg.meta };
+          } else if (msg.type === "error") {
+            streamError = msg.message ?? "Stream error";
+          }
+        }
+      }
+
+      if (streamError) throw new Error(streamError);
+      if (!finalData) throw new Error("Stream ended without final result");
+
+      setResult(finalData);
       setPhase("result");
+      setPartialResult(null);
+      track("result_received", {
+        recCount: finalData.result.recommendations.length,
+        totalMs: finalData.meta.timings.totalMs,
+      });
 
       // Persist so the user can refresh / close-and-reopen without losing
       // their plan. Best-effort — quotas / private mode silently no-op.
       try {
         const persisted: PersistedResult = {
-          data,
+          data: finalData,
           profile: {
             stage,
             field: fieldVal,
@@ -644,6 +777,9 @@ export default function BetaPage() {
       console.error("Submit error:", err);
       setErrorMsg(err instanceof Error ? err.message : "Unknown error");
       setPhase("error");
+      track("result_failed", {
+        message: err instanceof Error ? err.message.slice(0, 100) : "unknown",
+      });
     }
   }
 
@@ -652,6 +788,8 @@ export default function BetaPage() {
     setStep(1);
     setResult(null);
     setProfileSnapshot(null);
+    setRetrievedPaths(null);
+    setPartialResult(null);
     setErrorMsg(null);
     try {
       window.localStorage.removeItem(RESULT_STORAGE_KEY);
@@ -784,6 +922,14 @@ export default function BetaPage() {
       {phase === "loading" && (
         <LoadingView
           message={loadingMessageFor(elapsedSec)}
+          elapsedSec={elapsedSec}
+        />
+      )}
+
+      {phase === "streaming" && (
+        <StreamingView
+          retrievedPaths={retrievedPaths}
+          partialResult={partialResult}
           elapsedSec={elapsedSec}
         />
       )}
@@ -1527,6 +1673,106 @@ function LoadingView({
   );
 }
 
+/* ─── Streaming view — partial result rendering as it arrives ─────── */
+
+function StreamingView({
+  retrievedPaths,
+  partialResult,
+  elapsedSec,
+}: {
+  retrievedPaths: RetrievedPathSummary[] | null;
+  partialResult: PartialResult | null;
+  elapsedSec: number;
+}) {
+  const recs = partialResult?.recommendations ?? [];
+  const completeRecs = recs.filter(isCompleteRec);
+  const inProgressCount = recs.length - completeRecs.length;
+
+  return (
+    <section className="flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-3">
+          <div
+            className="h-3 w-3 animate-pulse rounded-full bg-emerald-400"
+            aria-label="Streaming"
+          />
+          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
+            Generating your plan…
+          </h1>
+        </div>
+        <p className="text-sm text-ink-200/60">
+          {completeRecs.length > 0
+            ? `${completeRecs.length} recommendation${completeRecs.length === 1 ? "" : "s"} ready · `
+            : ""}
+          {elapsedSec}s elapsed
+        </p>
+      </div>
+
+      {retrievedPaths && retrievedPaths.length > 0 && (
+        <div className="rounded-xl border border-ink-200/20 bg-ink-200/[0.03] p-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-200/60">
+            Found {retrievedPaths.length} similar profiles in our dataset
+          </p>
+          <ul className="flex flex-col gap-1 text-sm text-ink-200/80">
+            {retrievedPaths.map((p) => (
+              <li key={p.path_id} className="flex items-baseline gap-2">
+                <code className="rounded bg-ink-200/10 px-1.5 py-0.5 text-xs text-ink-200/70">
+                  {p.path_id}
+                </code>
+                <span className="text-ink-200/50">→</span>
+                <span>{p.next_role}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {completeRecs.length > 0 && (
+        <div className="flex flex-col gap-5">
+          {completeRecs.map((rec, i) => (
+            <RecommendationCard key={i} rec={rec} index={i + 1} />
+          ))}
+        </div>
+      )}
+
+      {inProgressCount > 0 && (
+        <div className="rounded-lg border border-dashed border-ink-200/25 p-5">
+          <div className="flex items-center gap-3 text-sm text-ink-200/70">
+            <div
+              className="h-2 w-2 animate-pulse rounded-full bg-ink-200/60"
+              aria-hidden="true"
+            />
+            <span>
+              Drafting recommendation {completeRecs.length + 1}
+              {recs.length > completeRecs.length + 1
+                ? ` of ${recs.length}+`
+                : "…"}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {partialResult?.honestTake && (
+        <div className="rounded-lg border border-ink-200/20 p-5">
+          <h2 className="text-base font-semibold uppercase tracking-wider text-ink-200/70">
+            Honest take
+          </h2>
+          <p className="mt-3 leading-relaxed">{partialResult.honestTake}</p>
+        </div>
+      )}
+
+      {partialResult?.whatWeDontKnow && (
+        <div className="rounded-lg border border-ink-200/20 p-5">
+          <h2 className="text-base font-semibold uppercase tracking-wider text-ink-200/70">
+            What we don&apos;t know about you
+          </h2>
+          <p className="mt-3 leading-relaxed">{partialResult.whatWeDontKnow}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 /* ─── Roadmap timeline (top of result) ───────────────────────── */
 
 function trim(text: string, max: number): string {
@@ -1764,6 +2010,7 @@ function ResultView({
     try {
       await navigator.clipboard.writeText(md);
       setCopyState("copied");
+      track("copy_plan_clicked", { length: md.length });
       setTimeout(() => setCopyState("idle"), 2200);
     } catch (err) {
       console.error("Clipboard write failed:", err);
@@ -1874,6 +2121,8 @@ function PostResultCTA() {
         throw new Error(errBody.message ?? `API ${res.status}`);
       }
       setStatus("ok");
+      track("email_captured", { wantsPremium });
+      if (wantsPremium) track("premium_intent");
     } catch (err) {
       console.error("PostResultCTA submit error:", err);
       setErrMsg(err instanceof Error ? err.message : "Could not save. Try again.");
@@ -2020,7 +2269,164 @@ function RecommendationCard({
           </span>
         ))}
       </div>
+
+      <FeedbackWidget rec={rec} index={index} />
     </article>
+  );
+}
+
+/* ─── Feedback widget on each recommendation ───────────────────── */
+
+function FeedbackWidget({
+  rec,
+  index,
+}: {
+  rec: Recommendation;
+  index: number;
+}) {
+  // Persist per-rec state across reloads of the same restored result.
+  const stateKey = `step:beta:feedback:v1:${index}:${rec.title.slice(0, 40)}`;
+  const [rating, setRating] = useState<"up" | "down" | null>(null);
+  const [showReason, setShowReason] = useState(false);
+  const [reason, setReason] = useState("");
+  const [submitState, setSubmitState] = useState<"idle" | "saving" | "saved" | "err">("idle");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(stateKey);
+      if (raw) {
+        const saved = JSON.parse(raw) as { rating: "up" | "down" };
+        setRating(saved.rating);
+        setSubmitState("saved");
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [stateKey]);
+
+  async function send(nextRating: "up" | "down", optionalReason?: string) {
+    setSubmitState("saving");
+    try {
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rating: nextRating,
+          recommendationIndex: index,
+          recommendationTitle: rec.title,
+          basedOnPathIds: rec.basedOnPathIds,
+          reason: optionalReason?.trim() || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      setSubmitState("saved");
+      try {
+        window.localStorage.setItem(
+          stateKey,
+          JSON.stringify({ rating: nextRating }),
+        );
+      } catch {
+        /* ignore */
+      }
+      track(nextRating === "up" ? "feedback_up" : "feedback_down", {
+        recIndex: index,
+        hasReason: !!optionalReason?.trim(),
+        pathIds: rec.basedOnPathIds.join(","),
+      });
+    } catch (err) {
+      console.error("Feedback submit error:", err);
+      setSubmitState("err");
+      setTimeout(() => setSubmitState("idle"), 2200);
+    }
+  }
+
+  function handleClick(next: "up" | "down") {
+    if (rating !== null) return; // already rated, no double-click
+    setRating(next);
+    if (next === "down") {
+      // Open reason box for thumbs-down (we want to learn from misses).
+      setShowReason(true);
+      void send(next); // optimistic — reason arrives separately
+    } else {
+      void send(next);
+    }
+  }
+
+  async function submitReason() {
+    if (!rating) return;
+    await send(rating, reason);
+    setShowReason(false);
+  }
+
+  return (
+    <div className="mt-4 flex flex-col gap-2 border-t border-ink-200/15 pt-3">
+      <div className="flex items-center gap-3 text-xs text-ink-200/60">
+        <span>Was this useful?</span>
+        <button
+          type="button"
+          onClick={() => handleClick("up")}
+          disabled={rating !== null}
+          aria-label="Useful"
+          className={`rounded-full border px-2.5 py-0.5 text-sm transition ${
+            rating === "up"
+              ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-300"
+              : "border-ink-200/30 hover:border-ink-200/60"
+          } disabled:cursor-default`}
+        >
+          👍
+        </button>
+        <button
+          type="button"
+          onClick={() => handleClick("down")}
+          disabled={rating !== null}
+          aria-label="Not useful"
+          className={`rounded-full border px-2.5 py-0.5 text-sm transition ${
+            rating === "down"
+              ? "border-red-400/60 bg-red-400/10 text-red-300"
+              : "border-ink-200/30 hover:border-ink-200/60"
+          } disabled:cursor-default`}
+        >
+          👎
+        </button>
+        {submitState === "saved" && rating !== null && !showReason && (
+          <span className="text-ink-200/50">Thanks — recorded.</span>
+        )}
+        {submitState === "err" && (
+          <span className="text-red-400">Couldn&apos;t save — try again.</span>
+        )}
+      </div>
+
+      {showReason && (
+        <div className="flex flex-col gap-2">
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="What was off about this? (optional, but really helpful)"
+            rows={2}
+            maxLength={800}
+            className="form-input text-sm"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={submitReason}
+              disabled={submitState === "saving"}
+              className="rounded-full border border-ink-200/40 px-4 py-1.5 text-xs hover:border-ink-50"
+            >
+              {submitState === "saving" ? "Saving…" : "Send"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowReason(false)}
+              className="text-xs text-ink-200/50 underline hover:opacity-100"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

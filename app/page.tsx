@@ -146,6 +146,9 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Sample plan preview ──────────────────────────────────── */}
+      <SamplePlanPreview />
+
       {/* What's live today ────────────────────────────────────── */}
       <section className="mt-16 flex flex-col gap-4 md:mt-20">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-200/70">
@@ -345,5 +348,131 @@ function JourneyStep({
       </div>
       <span className="text-sm leading-snug text-ink-200/80">{detail}</span>
     </div>
+  );
+}
+
+/* ─── Sample plan preview ──────────────────────────────────────── */
+
+function SamplePlanPreview() {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <section className="mt-10 md:mt-12">
+      <button
+        type="button"
+        onClick={() => setExpanded((s) => !s)}
+        className="flex w-full items-center justify-between rounded-xl border border-ink-200/25 bg-ink-200/[0.03] px-5 py-4 text-left transition hover:border-ink-200/50"
+        aria-expanded={expanded}
+      >
+        <span className="flex flex-col gap-0.5">
+          <span className="text-xs uppercase tracking-wider text-ink-200/60">
+            Curious what you&apos;d actually get?
+          </span>
+          <span className="text-base font-medium">
+            See a sample plan — anonymized real output
+          </span>
+        </span>
+        <span className="text-xl text-ink-200/60">{expanded ? "−" : "+"}</span>
+      </button>
+
+      {expanded && (
+        <div className="mt-4 flex flex-col gap-5 rounded-xl border border-ink-200/20 p-6">
+          <div className="flex flex-col gap-2 border-b border-ink-200/15 pb-4">
+            <span className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
+              The profile (anonymized)
+            </span>
+            <p className="text-sm leading-relaxed text-ink-200/80">
+              UK junior backend engineer at a Series B fintech, 18 months in.
+              Currently £58k. Wants to be tech lead in 18–24 months. Priority:
+              position first, money second, location third (London-based).
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
+              Top recommendation
+            </span>
+            <h3 className="text-lg font-semibold leading-snug">
+              Volunteer to own the next high-stakes service end-to-end
+            </h3>
+            <p className="text-sm leading-relaxed text-ink-200/85">
+              The uk-cs-grad-to-techlead path shows that &ldquo;volunteered to
+              own&rdquo; is the recurring move from junior to tech lead at
+              fintechs. With your TypeScript and Postgres depth, the payments
+              service rewrite is your highest-leverage project.
+            </p>
+
+            <div className="mt-3 flex flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/60">
+                90-day actions
+              </span>
+              <ul className="ml-1 flex flex-col gap-1.5 pl-4 text-sm leading-relaxed text-ink-200/85 marker:text-ink-200/40 [&>li]:list-disc">
+                <li>
+                  Identify the 2–3 services your team owns where the on-call
+                  burden is highest. Volunteer to own the rewrite of one in
+                  your next 1:1.
+                </li>
+                <li>
+                  Mentor 1 incoming intern this quarter — write a 1-page
+                  onboarding doc that becomes the team&apos;s default.
+                </li>
+                <li>
+                  Drive 1 cross-team initiative end-to-end (pick the smallest
+                  visible one) to show stakeholder management, not just code.
+                </li>
+              </ul>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-0.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/60">
+                12-month outcome
+              </span>
+              <p className="text-sm text-ink-200/85">
+                Senior Engineer with one squad-wide rewrite shipped, 1 mentee
+                promoted, on the tech-lead shortlist for the next opening.
+              </p>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-200/60">
+              <span className="font-semibold text-emerald-400">
+                HIGH confidence
+              </span>
+              <span>·</span>
+              <span>
+                Path replicated by 3 of 5 retrieved profiles in the same stage
+                + field
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 rounded-md border border-ink-200/15 bg-ink-200/[0.03] p-4">
+            <span className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
+              Honest take
+            </span>
+            <p className="text-sm leading-relaxed text-ink-200/85">
+              You&apos;re asking the right question, but the bottleneck for
+              tech lead at 18 months in is rarely technical — it&apos;s
+              showing you can drive work that isn&apos;t yours. Your TypeScript
+              skills are table stakes. The signal that gets you promoted is
+              owning a hairy multi-team project before someone above you asks
+              you to. Pick that project this quarter.
+            </p>
+          </div>
+
+          <div className="text-xs text-ink-200/50">
+            This is one move out of three to four ranked recommendations.
+            Yours will be specific to your stage, field, dilemma, and 5-year
+            vision.
+          </div>
+
+          <Link
+            href="/beta"
+            className="self-start rounded-full bg-ink-50 px-5 py-2.5 text-sm font-medium text-ink-950 transition hover:opacity-80"
+          >
+            Try with your own profile →
+          </Link>
+        </div>
+      )}
+    </section>
   );
 }
