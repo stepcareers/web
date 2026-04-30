@@ -745,10 +745,11 @@ export default function BetaPage() {
       let buffer = "";
       let finalData: ApiResponse | null = null;
       let streamError: string | null = null;
+      // Mirror state in a local var so we can salvage on truncation
+      // without racing React's setState batching.
+      let latestPartial: PartialResult | null = null;
+      let latestRetrieved: RetrievedPathSummary[] = [];
 
-      // Yield once a microtask before the first read so React commits the
-      // "loading" phase render — avoids skipping straight to streaming
-      // before the loading view ever shows.
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -775,9 +776,11 @@ export default function BetaPage() {
           }
 
           if (msg.type === "retrieved" && msg.paths) {
+            latestRetrieved = msg.paths;
             setRetrievedPaths(msg.paths);
             setPhase("streaming");
           } else if (msg.type === "partial" && msg.data) {
+            latestPartial = msg.data;
             setPartialResult(msg.data);
           } else if (msg.type === "final" && msg.result && msg.meta) {
             finalData = { result: msg.result, meta: msg.meta };
@@ -788,7 +791,53 @@ export default function BetaPage() {
       }
 
       if (streamError) throw new Error(streamError);
-      if (!finalData) throw new Error("Stream ended without final result");
+
+      // Salvage path: if Vercel killed the function at the 60s cap, the
+      // 'final' event never fires. But we may already have a complete
+      // (or near-complete) plan in the partial — synthesize it.
+      if (!finalData && latestPartial) {
+        const completeRecs = (latestPartial.recommendations ?? []).filter(
+          isCompleteRec,
+        );
+        const haveHonestTake =
+          typeof latestPartial.honestTake === "string" &&
+          latestPartial.honestTake.length > 50;
+        const haveWhatWeDontKnow =
+          typeof latestPartial.whatWeDontKnow === "string" &&
+          latestPartial.whatWeDontKnow.length > 20;
+        if (completeRecs.length >= 2 && haveHonestTake && haveWhatWeDontKnow) {
+          finalData = {
+            result: {
+              recommendations: completeRecs,
+              honestTake: latestPartial.honestTake!,
+              whatWeDontKnow: latestPartial.whatWeDontKnow!,
+            },
+            meta: {
+              model: "claude-sonnet-4-6",
+              promptVersion: "recommend@v1",
+              retrievalCount: latestRetrieved.length,
+              retrievedPathIds: latestRetrieved.map((p) => p.path_id),
+              tokens: { input: null, output: null },
+              timings: {
+                embedMs: 0,
+                retrieveMs: 0,
+                llmMs: elapsedSec * 1000,
+                totalMs: elapsedSec * 1000,
+              },
+            },
+          };
+          console.warn(
+            "[/api/recommend] salvaged partial result after stream truncation",
+            { recCount: completeRecs.length, elapsedSec },
+          );
+        }
+      }
+
+      if (!finalData) {
+        throw new Error(
+          "Generation took too long (Vercel killed the function at 60s). Try fewer past positions or refine a previous plan instead.",
+        );
+      }
 
       setResult(finalData);
       setPhase("result");
