@@ -14,6 +14,12 @@ export const ConfidenceSchema = z.object({
   reason: z.string().min(5).max(600).describe("Why this confidence level (1-2 sentences)."),
 });
 
+export const LeverageEnum = z
+  .enum(["foundation", "accelerator", "optional"])
+  .describe(
+    "How essential this step is to the 5-year vision. 'foundation' = without this, the vision is unrealistic. 'accelerator' = compresses the timeframe but the path can work without it. 'optional' = useful but not gating.",
+  );
+
 export const RecommendationSchema = z.object({
   title: z.string().min(5).max(160).describe("Action-oriented title (5-12 words)."),
   rationale: z.string().min(20).max(1000).describe("2-3 sentences on why this fits the user."),
@@ -34,6 +40,14 @@ export const RecommendationSchema = z.object({
     .min(1)
     .max(6)
     .describe("path_id slugs cited from retrieved paths."),
+  leverage: LeverageEnum,
+  pathEvidence: z
+    .string()
+    .min(15)
+    .max(400)
+    .describe(
+      "Concrete count from the retrieved paths. e.g. '3 of 5 retrieved profiles took this exact move; 2 reached an equivalent outcome within 24 months.' Must be grounded in actual paths — never invented percentages.",
+    ),
 });
 
 export const RecommendResultSchema = z.object({

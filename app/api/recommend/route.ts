@@ -99,7 +99,8 @@ SELECT
   p.skills_gained,
   p.outcome_24m,
   p.confidence,
-  p.tags
+  p.tags,
+  pe.embedding <=> $1::vector AS distance
 FROM path_embeddings pe
 JOIN paths p ON p.id = pe.path_id
 WHERE pe.model = $2
@@ -198,6 +199,7 @@ export async function POST(req: NextRequest) {
     outcome_24m: string;
     confidence: string;
     tags: string[];
+    distance: number | string;
   }>;
   try {
     const result = await pool.query(RETRIEVE_SQL, [
@@ -239,12 +241,18 @@ export async function POST(req: NextRequest) {
 
       // First event: retrieved paths. Lets the client show "found 5
       // similar profiles" within the first second of the stream.
+      // Includes similarity (1 - cosine distance) so the methodology
+      // card on the result view can show how close each match was.
       send({
         type: "retrieved",
         paths: retrievedPaths.map((p) => ({
           path_id: p.path_id,
+          starting_role: p.starting_role,
           next_role: p.next_role,
           transition_type: p.transition_type,
+          timeframe_months: p.timeframe_months,
+          locale: p.locale,
+          similarity: Math.max(0, 1 - parseFloat(String(p.distance ?? 1))),
         })),
       });
 
