@@ -598,7 +598,6 @@ export default function BetaPage() {
     });
 
     setPhase("loading");
-    setLoadingMsgIdx(0);
     setElapsedSec(0);
 
     try {
