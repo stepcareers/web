@@ -1212,16 +1212,26 @@ function Step2(p: Step2Props) {
               </select>
               <input
                 type="number"
-                value={pos.durationMonths}
-                onChange={(e) =>
-                  p.updatePosition(i, {
-                    durationMonths: Math.max(1, Number(e.target.value)),
-                  })
+                value={
+                  pos.durationMonths
+                    ? // Show as years; if exactly N months, render as N/12.
+                      // Use up to 1 decimal so 18 months → 1.5 reads cleanly.
+                      Math.round((pos.durationMonths / 12) * 10) / 10
+                    : ""
                 }
-                placeholder="Months"
-                min={1}
-                max={600}
-                className="form-input w-full sm:w-28"
+                onChange={(e) => {
+                  const years = Number(e.target.value);
+                  if (Number.isNaN(years) || years <= 0) return;
+                  // Schema stores months — round to nearest month.
+                  p.updatePosition(i, {
+                    durationMonths: Math.max(1, Math.round(years * 12)),
+                  });
+                }}
+                placeholder="Years (e.g. 2.5)"
+                min={0.1}
+                max={50}
+                step={0.5}
+                className="form-input w-full sm:w-32"
               />
             </div>
             <input
