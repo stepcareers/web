@@ -282,14 +282,27 @@ const INTEREST_SUGGESTIONS = [
   "Sales / business development",
 ];
 
-const LOADING_MESSAGES = [
-  "Reading your profile…",
-  "Searching curated career paths…",
-  "Finding similar profiles…",
-  "Drafting your options…",
-  "Sharpening the honest take…",
-  "Almost there — stitching it together…",
-];
+/** Loading messages keyed to elapsed time, not random rotation. The
+ * sequence mirrors what's actually happening server-side: embed → retrieve
+ * → LLM thinks → LLM writes. Telling users that we're searching real
+ * career patterns reframes the wait from "is this broken?" to "this is
+ * doing real work". */
+function loadingMessageFor(elapsedSec: number): string {
+  if (elapsedSec < 5) return "Reading your profile…";
+  if (elapsedSec < 12) return "Searching 33 curated career paths…";
+  if (elapsedSec < 22) return "Finding profiles similar to yours…";
+  if (elapsedSec < 35) return "Drafting recommendations grounded in real patterns…";
+  if (elapsedSec < 50) return "Writing the honest take — direct, not polite…";
+  return "Finalizing your plan — this takes a bit longer for richer profiles…";
+}
+
+const RESULT_STORAGE_KEY = "step:beta:lastResult:v1";
+
+interface PersistedResult {
+  data: ApiResponse;
+  profile: ProfileSnapshot | null;
+  savedAt: number;
+}
 
 const MAX_SKILLS = 8;
 const MAX_INTERESTS = 5;
@@ -345,17 +358,40 @@ export default function BetaPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [result, setResult] = useState<ApiResponse | null>(null);
   const [profileSnapshot, setProfileSnapshot] = useState<ProfileSnapshot | null>(null);
-  const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
   const [elapsedSec, setElapsedSec] = useState(0);
 
+  // Tick elapsed seconds while loading. Loading messages are derived from
+  // elapsedSec via loadingMessageFor() — see LoadingView.
   useEffect(() => {
     if (phase !== "loading") return;
     const t = setInterval(() => {
-      setLoadingMsgIdx((i) => (i + 1) % LOADING_MESSAGES.length);
-      setElapsedSec((s) => s + 5);
-    }, 5000);
+      setElapsedSec((s) => s + 1);
+    }, 1000);
     return () => clearInterval(t);
   }, [phase]);
+
+  // On mount, restore last result from localStorage if present. Lets users
+  // refresh / close-and-reopen without losing their plan. We trust the
+  // stored shape — if it's stale or malformed, we silently drop it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(RESULT_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as PersistedResult;
+      if (!parsed?.data?.result?.recommendations?.length) return;
+      setResult(parsed.data);
+      setProfileSnapshot(parsed.profile);
+      setPhase("result");
+    } catch {
+      // Corrupt entry — clear it so we don't keep tripping on it.
+      try {
+        window.localStorage.removeItem(RESULT_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, []);
 
   /* ─ Step 1 helpers ─ */
   function toggleSkill(s: string) {
@@ -581,6 +617,30 @@ export default function BetaPage() {
       const data = (await res.json()) as ApiResponse;
       setResult(data);
       setPhase("result");
+
+      // Persist so the user can refresh / close-and-reopen without losing
+      // their plan. Best-effort — quotas / private mode silently no-op.
+      try {
+        const persisted: PersistedResult = {
+          data,
+          profile: {
+            stage,
+            field: fieldVal,
+            currentSalary: currentSalaryNum,
+            minSalary: minSalaryNum,
+            currency: salaryCurrency,
+            futureSelf: futureSelf.trim() || undefined,
+            locationPreferred: locationPreferred.trim() || undefined,
+          },
+          savedAt: Date.now(),
+        };
+        window.localStorage.setItem(
+          RESULT_STORAGE_KEY,
+          JSON.stringify(persisted),
+        );
+      } catch {
+        /* ignore — storage full / blocked */
+      }
     } catch (err) {
       console.error("Submit error:", err);
       setErrorMsg(err instanceof Error ? err.message : "Unknown error");
@@ -594,6 +654,11 @@ export default function BetaPage() {
     setResult(null);
     setProfileSnapshot(null);
     setErrorMsg(null);
+    try {
+      window.localStorage.removeItem(RESULT_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
   }
 
   /* ─ Render ─ */
@@ -719,7 +784,7 @@ export default function BetaPage() {
 
       {phase === "loading" && (
         <LoadingView
-          message={LOADING_MESSAGES[loadingMsgIdx] ?? "…"}
+          message={loadingMessageFor(elapsedSec)}
           elapsedSec={elapsedSec}
         />
       )}
@@ -1331,6 +1396,13 @@ function Step3(p: Step3Props) {
           {p.dilemma.length}/500
         </span>
       </FieldWrap>
+
+      <p className="text-xs leading-relaxed text-ink-200/50">
+        Privacy: your inputs are stored in your browser session and on our
+        infrastructure only to generate your plan. We don&apos;t share or sell
+        them. Your email — if you give us one after the result — is used
+        for the check-in sequence you opt into.
+      </p>
     </section>
   );
 }
@@ -1448,7 +1520,8 @@ function LoadingView({
       />
       <p className="text-lg">{message}</p>
       <p className="text-sm text-ink-200/60 dark:text-ink-200/50">
-        This takes ~10–30 seconds. We&apos;re calling Claude under the hood.
+        Claude is generating your plan. Typical: 30–60 seconds — longer
+        for richer profiles.
         {elapsedSec > 0 && ` (${elapsedSec}s elapsed)`}
       </p>
     </section>
@@ -1602,6 +1675,79 @@ function Milestone({
   );
 }
 
+function buildPlanMarkdown(
+  data: ApiResponse,
+  profile: ProfileSnapshot | null,
+): string {
+  const sym = profile?.currency ? CURRENCY_SYMBOL[profile.currency] : "";
+  const lines: string[] = [];
+  lines.push("# Your career plan from Step");
+  lines.push("");
+
+  if (profile) {
+    lines.push("## Where you are");
+    lines.push(`- Stage: ${STAGE_SHORT[profile.stage]}`);
+    lines.push(`- Field: ${profile.field.replace(/_/g, " ")}`);
+    if (profile.currentSalary !== undefined) {
+      lines.push(
+        `- Current salary: ${sym}${profile.currentSalary.toLocaleString()}/yr`,
+      );
+    }
+    if (profile.minSalary !== undefined) {
+      lines.push(
+        `- Target minimum: ${sym}${profile.minSalary.toLocaleString()}/yr`,
+      );
+    }
+    if (profile.locationPreferred) {
+      lines.push(`- Location: ${profile.locationPreferred}`);
+    }
+    lines.push("");
+
+    if (profile.futureSelf) {
+      lines.push("## Where you want to be (5 years)");
+      lines.push(profile.futureSelf);
+      lines.push("");
+    }
+  }
+
+  lines.push("## Recommendations");
+  lines.push("");
+  data.result.recommendations.forEach((rec, i) => {
+    lines.push(`### ${i + 1}. ${rec.title}`);
+    lines.push("");
+    lines.push(rec.rationale);
+    lines.push("");
+    lines.push(`**90-day actions:**`);
+    rec.ninetyDayActions.forEach((a) => lines.push(`- ${a}`));
+    lines.push("");
+    lines.push(`**12-month outcome:** ${rec.twelveMonthOutcome}`);
+    lines.push("");
+    lines.push(`**Similar pattern:** ${rec.similarProfilePattern}`);
+    lines.push("");
+    lines.push(
+      `**Confidence:** ${rec.confidence.level} — ${rec.confidence.reason}`,
+    );
+    lines.push("");
+    lines.push(`**Based on paths:** ${rec.basedOnPathIds.join(", ")}`);
+    lines.push("");
+  });
+
+  lines.push("## Honest take");
+  lines.push("");
+  lines.push(data.result.honestTake);
+  lines.push("");
+  lines.push("## What we don't know about you");
+  lines.push("");
+  lines.push(data.result.whatWeDontKnow);
+  lines.push("");
+  lines.push("---");
+  lines.push(
+    `Generated by step.careers · ${new Date().toISOString().slice(0, 10)}`,
+  );
+
+  return lines.join("\n");
+}
+
 function ResultView({
   data,
   profile,
@@ -1612,6 +1758,21 @@ function ResultView({
   onReset: () => void;
 }) {
   const { result, meta } = data;
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "err">("idle");
+
+  async function copyPlan() {
+    const md = buildPlanMarkdown(data, profile);
+    try {
+      await navigator.clipboard.writeText(md);
+      setCopyState("copied");
+      setTimeout(() => setCopyState("idle"), 2200);
+    } catch (err) {
+      console.error("Clipboard write failed:", err);
+      setCopyState("err");
+      setTimeout(() => setCopyState("idle"), 2200);
+    }
+  }
+
   return (
     <section className="flex flex-col gap-10">
       <RoadmapTimeline
@@ -1619,15 +1780,29 @@ function ResultView({
         recommendations={result.recommendations}
       />
 
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
-          Your next steps
-        </h1>
-        <p className="mt-2 text-sm text-ink-200/60 dark:text-ink-200/50">
-          {result.recommendations.length} ranked moves · grounded in{" "}
-          {meta.retrievalCount} similar profiles ·{" "}
-          {Math.round(meta.timings.totalMs / 1000)}s to generate
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+            Your next steps
+          </h1>
+          <p className="mt-2 text-sm text-ink-200/60 dark:text-ink-200/50">
+            {result.recommendations.length} ranked moves · grounded in{" "}
+            {meta.retrievalCount} similar profiles ·{" "}
+            {Math.round(meta.timings.totalMs / 1000)}s to generate
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={copyPlan}
+          className="self-start rounded-full border border-ink-200/40 px-4 py-2 text-sm transition hover:border-ink-50 hover:bg-ink-50/5 sm:self-auto"
+          aria-live="polite"
+        >
+          {copyState === "copied"
+            ? "✓ Copied to clipboard"
+            : copyState === "err"
+              ? "⚠ Copy failed — try again"
+              : "Copy plan as text"}
+        </button>
       </div>
 
       <div className="flex flex-col gap-6">
