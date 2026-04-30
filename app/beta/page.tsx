@@ -394,10 +394,21 @@ const CURRENCY_SYMBOL: Record<Currency, string> = {
 
 /* ─── Page component ──────────────────────────────────────────── */
 
+interface CvParsed {
+  stage?: Stage;
+  field?: FieldEnum;
+  skills?: string[];
+  studies?: Study[];
+  pastPositions?: PastPosition[];
+  languages?: LanguageRow[];
+}
+
 export default function BetaPage() {
+  // "intro" is the new entry point: choose CV upload or manual.
   const [phase, setPhase] = useState<
-    "form" | "loading" | "streaming" | "result" | "error"
-  >("form");
+    "intro" | "form" | "loading" | "streaming" | "result" | "error"
+  >("intro");
+  const [prefilledFromCv, setPrefilledFromCv] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Step 1
@@ -821,18 +832,55 @@ export default function BetaPage() {
   }
 
   function handleReset() {
-    setPhase("form");
+    setPhase("intro");
     setStep(1);
     setResult(null);
     setProfileSnapshot(null);
     setRetrievedPaths(null);
     setPartialResult(null);
     setErrorMsg(null);
+    setPrefilledFromCv(false);
     try {
       window.localStorage.removeItem(RESULT_STORAGE_KEY);
     } catch {
       /* ignore */
     }
+  }
+
+  /* ─ CV upload prefill ─ */
+  function applyCvParse(parsed: CvParsed) {
+    if (parsed.stage) setStage(parsed.stage);
+    if (parsed.field) setFieldVal(parsed.field);
+    if (parsed.skills && parsed.skills.length > 0) {
+      // Cap to MAX_SKILLS to leave room for the user to add their own
+      setSkills(parsed.skills.slice(0, MAX_SKILLS));
+    }
+    if (parsed.studies && parsed.studies.length > 0) {
+      setStudies(parsed.studies.slice(0, MAX_STUDIES));
+    }
+    if (parsed.pastPositions && parsed.pastPositions.length > 0) {
+      setPastPositions(parsed.pastPositions.slice(0, MAX_PAST_POSITIONS));
+    }
+    if (parsed.languages && parsed.languages.length > 0) {
+      setLanguages(parsed.languages.slice(0, MAX_LANGUAGES));
+    }
+    setPrefilledFromCv(true);
+    setPhase("form");
+    setStep(1);
+    track("cv_parsed", {
+      hasStage: !!parsed.stage,
+      hasField: !!parsed.field,
+      skillsCount: parsed.skills?.length ?? 0,
+      studiesCount: parsed.studies?.length ?? 0,
+      positionsCount: parsed.pastPositions?.length ?? 0,
+      languagesCount: parsed.languages?.length ?? 0,
+    });
+  }
+
+  function skipCvUpload() {
+    setPhase("form");
+    setStep(1);
+    track("cv_skipped");
   }
 
   /* ─ Render ─ */
@@ -850,8 +898,18 @@ export default function BetaPage() {
         </span>
       </header>
 
+      {phase === "intro" && (
+        <CvUpload onParsed={applyCvParse} onSkip={skipCvUpload} />
+      )}
+
       {phase === "form" && (
         <>
+          {prefilledFromCv && (
+            <div className="mb-6 rounded-md border border-emerald-400/30 bg-emerald-400/[0.05] px-4 py-3 text-sm text-emerald-200/90">
+              Pre-filled from your CV. Review each step and edit anything that
+              looks off — the form is yours.
+            </div>
+          )}
           <ProgressBar step={step} />
 
           {errorMsg && (
@@ -1710,6 +1768,120 @@ function FieldWrap({
       )}
       {children}
     </label>
+  );
+}
+
+/* ─── CV upload (intro phase) ──────────────────────────────────── */
+
+function CvUpload({
+  onParsed,
+  onSkip,
+}: {
+  onParsed: (parsed: CvParsed) => void;
+  onSkip: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [status, setStatus] = useState<"idle" | "parsing" | "err">("idle");
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  const trimmed = text.trim();
+  const tooShort = trimmed.length > 0 && trimmed.length < 100;
+  const ready = trimmed.length >= 100 && status !== "parsing";
+
+  async function submit() {
+    if (!ready) return;
+    setStatus("parsing");
+    setErrMsg(null);
+    try {
+      const res = await fetch("/api/parse-cv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: trimmed }),
+      });
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => ({}))) as {
+          message?: string;
+        };
+        throw new Error(errBody.message ?? `API ${res.status}`);
+      }
+      const data = (await res.json()) as { parsed: CvParsed };
+      onParsed(data.parsed);
+    } catch (err) {
+      console.error("CV parse error:", err);
+      setErrMsg(
+        err instanceof Error
+          ? err.message
+          : "Couldn't parse the CV. Try the manual form.",
+      );
+      setStatus("err");
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-7">
+      <div>
+        <h1 className="text-3xl font-semibold leading-tight tracking-tight md:text-4xl">
+          Have a CV? Skip the typing.
+        </h1>
+        <p className="mt-3 text-base text-ink-200/90 dark:text-ink-200/70">
+          Paste the text and we&apos;ll pre-fill the form: stage, field,
+          skills, education, past positions, languages. You review and edit in
+          the next step. Takes 5 seconds.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Paste your CV here. LinkedIn export, plain text, or a copy-paste from your CV doc — all work."
+          rows={10}
+          maxLength={20000}
+          className="form-input min-h-[14rem] text-sm leading-relaxed"
+          disabled={status === "parsing"}
+        />
+        <div className="flex items-center justify-between text-xs text-ink-200/50">
+          <span>
+            {trimmed.length}/20000
+            {tooShort && " · need at least 100 characters"}
+          </span>
+          <span>Privacy: processed in memory, not stored.</span>
+        </div>
+      </div>
+
+      {errMsg && (
+        <div className="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {errMsg}
+        </div>
+      )}
+
+      <div className="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <button
+          type="button"
+          onClick={onSkip}
+          className="text-sm text-ink-200/60 underline hover:text-ink-200/90"
+          disabled={status === "parsing"}
+        >
+          Or fill the form manually →
+        </button>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!ready}
+          className="rounded-full bg-ink-50 px-7 py-3 text-sm font-medium text-ink-950 transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {status === "parsing"
+            ? "Reading your CV…"
+            : "Pre-fill from CV →"}
+        </button>
+      </div>
+
+      <p className="text-xs leading-relaxed text-ink-200/50">
+        Tip: if you only have a PDF, copy-paste its text. PDF upload is on the
+        roadmap. The parser is conservative — it only fills what it can read,
+        leaves the rest blank for you to add.
+      </p>
+    </section>
   );
 }
 

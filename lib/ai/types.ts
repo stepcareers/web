@@ -207,6 +207,37 @@ export const RecommendInputSchema = z.object({
   locale: z.enum(["en", "it"]).default("en"),
 });
 
+/* ─── CV parser output (best-effort extraction from text) ────────── */
+
+export const CvParseResultSchema = z.object({
+  stage: StageEnum.optional().describe(
+    "Best guess from years of experience. <1y or student → recent_grad / university_student. 0–3y, 3–7y, 7+.",
+  ),
+  field: FieldEnum.optional().describe(
+    "Domain of the most recent role or studies. Use 'other' if genuinely unclear.",
+  ),
+  skills: z
+    .array(z.string().min(1).max(80))
+    .max(8)
+    .default([])
+    .describe(
+      "Top 6–8 hard skills (technical, domain-specific, tools). NO soft skills like 'leadership' or 'communication'.",
+    ),
+  studies: z
+    .array(StudySchema)
+    .max(5)
+    .default([])
+    .describe("Highest first."),
+  pastPositions: z
+    .array(PastPositionSchema)
+    .max(8)
+    .default([])
+    .describe("Most recent first. durationMonths from start/end dates."),
+  languages: z.array(LanguageSchema).max(8).default([]),
+});
+
+export type CvParseResult = z.infer<typeof CvParseResultSchema>;
+
 export type Stage = z.infer<typeof StageEnum>;
 export type Field = z.infer<typeof FieldEnum>;
 export type DegreeLevel = z.infer<typeof DegreeLevelEnum>;
