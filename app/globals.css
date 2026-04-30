@@ -23,13 +23,21 @@ body {
    Belt-and-suspenders against mobile cache showing white. */
 html {
   background-color: #0a0a0a !important;
-  color: #fafafa;
+  color: #fafafa !important;
   color-scheme: dark;
 }
 
 body {
   background-color: #0a0a0a !important;
-  color: #fafafa;
+  color: #fafafa !important;
+}
+
+/* Headings inherit body color, but if any deployed Tailwind layer pins
+   them to text-ink-950 (e.g. older body className still has text-ink-950
+   pre-rebuild), force them light. Same for paragraph + spans that have
+   no explicit color class. */
+h1, h2, h3, h4, h5, h6 {
+  color: #fafafa !important;
 }
 
 @media (prefers-reduced-motion: no-preference) {
