@@ -37,7 +37,12 @@ const VOYAGE_MODEL = "voyage-3-large";
 const VOYAGE_DIMENSIONS = 1024;
 const MODEL_KEY = `${VOYAGE_MODEL}-${VOYAGE_DIMENSIONS}`;
 const TOP_K = 5;
-const CLAUDE_MODEL = "claude-sonnet-4-6";
+// Haiku 4.5 → 3–5x faster than Sonnet, fits comfortably in Vercel Hobby's
+// 60s cap even on CV-prefilled rich profiles. Quality is more concise but
+// with the strict prompt (rules 1–14, mandatory completeness, leverage +
+// pathEvidence schema annotations) the structured output is solid. Switch
+// back to claude-sonnet-4-6 if/when on Vercel Pro (300s cap).
+const CLAUDE_MODEL = "claude-haiku-4-5";
 
 /* ─── Pool singleton ────────────────────────────────────────────────── */
 
