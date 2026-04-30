@@ -1819,7 +1819,7 @@ function CvUpload({
     setStatus("idle");
   }
 
-  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+  function onDrop(e: React.DragEvent<HTMLLabelElement>) {
     e.preventDefault();
     setDragOver(false);
     const f = e.dataTransfer.files?.[0] ?? null;
