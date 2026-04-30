@@ -60,14 +60,24 @@ async function extractTextFromFile(file: File): Promise<string> {
   const buffer = Buffer.from(await file.arrayBuffer());
 
   if (isPdf) {
-    // pdf-parse v2 exposes a clean default export. (The old v1 inner-path
-    // workaround is no longer needed — and v2 doesn't even export it.)
-    const pdfModule = (await import("pdf-parse")) as unknown as {
-      default: (buf: Buffer) => Promise<{ text: string }>;
+    // unpdf is built for serverless Node environments — no DOMMatrix /
+    // OffscreenCanvas dependencies (unlike pdf-parse v2's pdfjs-dist
+    // which crashes with "DOMMatrix is not defined" on Vercel).
+    const unpdf = (await import("unpdf")) as unknown as {
+      getDocumentProxy: (
+        bytes: Uint8Array,
+      ) => Promise<unknown>;
+      extractText: (
+        doc: unknown,
+        opts?: { mergePages?: boolean },
+      ) => Promise<{ text: string | string[]; totalPages: number }>;
     };
-    const pdfParse = pdfModule.default;
-    const result = await pdfParse(buffer);
-    const text = (result.text ?? "").trim();
+    const pdf = await unpdf.getDocumentProxy(new Uint8Array(buffer));
+    const { text: rawText } = await unpdf.extractText(pdf, {
+      mergePages: true,
+    });
+    const text = (typeof rawText === "string" ? rawText : rawText.join("\n"))
+      .trim();
     if (text.length < MIN_TEXT_LENGTH) {
       throw new Error(
         "Couldn't read text from this PDF — it may be a scan or image-based. Try pasting the text instead.",
