@@ -64,7 +64,7 @@ const FIXTURES: Array<{ name: string; profile: RecommendInput }> = [
         { language: "Italian", proficiency: "native" },
         { language: "English", proficiency: "fluent" },
       ],
-      salary: { notAPriority: false, minAcceptable: 45000, currency: "EUR" },
+      salary: { notAPriority: false, current: 32000, minAcceptable: 45000, currency: "EUR" },
       location: {
         preferred: "Milan or remote EU",
         openToRemote: true,
@@ -97,7 +97,7 @@ const FIXTURES: Array<{ name: string; profile: RecommendInput }> = [
         },
       ],
       languages: [{ language: "English", proficiency: "native" }],
-      salary: { notAPriority: false, minAcceptable: 75000, currency: "GBP" },
+      salary: { notAPriority: false, current: 55000, minAcceptable: 75000, currency: "GBP" },
       location: {
         preferred: "London",
         openToRemote: true,
@@ -134,7 +134,7 @@ const FIXTURES: Array<{ name: string; profile: RecommendInput }> = [
         { language: "Italian", proficiency: "native" },
         { language: "English", proficiency: "professional" },
       ],
-      salary: { notAPriority: false, minAcceptable: 50000, currency: "EUR" },
+      salary: { notAPriority: false, current: 38000, minAcceptable: 50000, currency: "EUR" },
       location: {
         preferred: "Milan or remote",
         openToRemote: true,
@@ -211,7 +211,7 @@ const FIXTURES: Array<{ name: string; profile: RecommendInput }> = [
         { language: "English", proficiency: "fluent" },
         { language: "German", proficiency: "conversational" },
       ],
-      salary: { notAPriority: false, minAcceptable: 90000, currency: "EUR" },
+      salary: { notAPriority: false, current: 65000, minAcceptable: 90000, currency: "EUR" },
       location: {
         preferred: "Berlin",
         openToRemote: false,

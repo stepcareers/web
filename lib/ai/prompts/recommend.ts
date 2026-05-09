@@ -1,6 +1,6 @@
 import type { RecommendInput } from "../types";
 
-export const RECOMMEND_PROMPT_VERSION = "recommend@v2";
+export const RECOMMEND_PROMPT_VERSION = "recommend@v3";
 
 export const RECOMMEND_SYSTEM_PROMPT = `You are a senior career advisor at Step (step.careers), a platform that helps young professionals — students, recent graduates, and 0–7 year career people — make better career decisions. Your users are anxious about choosing wrong, overwhelmed by options, and looking for honest guidance grounded in real patterns.
 

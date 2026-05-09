@@ -610,12 +610,32 @@ export default function BetaPage() {
   function validateStep3(): string | null {
     const set = new Set([priorityFirst, prioritySecond, priorityThird]);
     if (set.size !== 3) return "Each priority must be different (position, money, location).";
+
+    // Salary anchor: either a current number, or "no income yet", or
+    // "not a priority". Without one, the recommender invents fake bands.
+    if (!noIncomeYet && !salaryNotPriority && !salaryCurrent.trim()) {
+      return "Tell us your current comp, or check 'I don't have an income yet', or 'salary isn't my top priority'.";
+    }
     if (salaryCurrent && Number(salaryCurrent) < 0) {
       return "Current salary can't be negative.";
     }
     if (!salaryNotPriority && salaryMin && Number(salaryMin) < 0) {
       return "Salary minimum can't be negative.";
     }
+
+    // futureSelf: required, ≥40 chars. Without an anchor, recommendations
+    // float free of any 5-year direction.
+    const fs = futureSelf.trim();
+    if (fs.length < 40) {
+      return "5-year vision: at least 40 characters. Be specific — title, comp, location, lifestyle.";
+    }
+
+    // dilemma: required, ≥30 chars. Without it, recommendations are generic.
+    const dl = dilemma.trim();
+    if (dl.length < 30) {
+      return "Career question: at least 30 characters. Name the actual fork in the road.";
+    }
+
     return null;
   }
 
@@ -691,8 +711,10 @@ export default function BetaPage() {
         second: prioritySecond,
         third: priorityThird,
       },
-      futureSelf: futureSelf.trim() || undefined,
-      dilemma: dilemma.trim() || undefined,
+      // futureSelf and dilemma are required by the schema; validateStep3
+      // ensures non-empty before reaching here.
+      futureSelf: futureSelf.trim(),
+      dilemma: dilemma.trim(),
       additionalContext: additionalContextOverride?.trim() || undefined,
       locale: "en" as const,
     };
@@ -833,7 +855,7 @@ export default function BetaPage() {
             },
             meta: {
               model: "claude-haiku-4-5",
-              promptVersion: "recommend@v2",
+              promptVersion: "recommend@v3",
               retrievalCount: latestRetrieved.length,
               retrievedPathIds: latestRetrieved.map((p) => p.path_id),
               tokens: { input: null, output: null },
@@ -915,23 +937,104 @@ export default function BetaPage() {
     }
   }
 
-  /* ─ CV upload prefill ─ */
+  /* ─ CV upload prefill ─
+   *
+   * Defensive normalization: even though /api/parse-cv validates with
+   * Zod before responding, we re-shape and guard against subtly bad
+   * values that could crash a render (NaN durations from PDF
+   * extraction, duplicate language entries, empty strings the renderer
+   * doesn't expect). Each setter is wrapped in try/catch so one bad
+   * field doesn't break the whole prefill — the user sees a "review
+   * carefully" hint instead of a white screen.
+   */
   function applyCvParse(parsed: CvParsed) {
-    if (parsed.stage) setStage(parsed.stage);
-    if (parsed.field) setFieldVal(parsed.field);
-    if (parsed.skills && parsed.skills.length > 0) {
-      // Cap to MAX_SKILLS to leave room for the user to add their own
-      setSkills(parsed.skills.slice(0, MAX_SKILLS));
+    const issues: string[] = [];
+
+    try {
+      if (parsed.stage) setStage(parsed.stage);
+      if (parsed.field) setFieldVal(parsed.field);
+    } catch (e) {
+      issues.push("stage/field");
+      console.warn("[applyCvParse] stage/field failed", e, parsed);
     }
-    if (parsed.studies && parsed.studies.length > 0) {
-      setStudies(parsed.studies.slice(0, MAX_STUDIES));
+
+    try {
+      if (Array.isArray(parsed.skills) && parsed.skills.length > 0) {
+        const cleanSkills = parsed.skills
+          .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+          .slice(0, MAX_SKILLS);
+        if (cleanSkills.length > 0) setSkills(cleanSkills);
+      }
+    } catch (e) {
+      issues.push("skills");
+      console.warn("[applyCvParse] skills failed", e, parsed.skills);
     }
-    if (parsed.pastPositions && parsed.pastPositions.length > 0) {
-      setPastPositions(parsed.pastPositions.slice(0, MAX_PAST_POSITIONS));
+
+    try {
+      if (Array.isArray(parsed.studies) && parsed.studies.length > 0) {
+        const cleanStudies = parsed.studies
+          .filter(
+            (s): s is Study =>
+              !!s &&
+              typeof s.level === "string" &&
+              typeof s.field === "string" &&
+              s.field.trim().length > 0,
+          )
+          .slice(0, MAX_STUDIES);
+        if (cleanStudies.length > 0) setStudies(cleanStudies);
+      }
+    } catch (e) {
+      issues.push("studies");
+      console.warn("[applyCvParse] studies failed", e, parsed.studies);
     }
-    if (parsed.languages && parsed.languages.length > 0) {
-      setLanguages(parsed.languages.slice(0, MAX_LANGUAGES));
+
+    try {
+      if (Array.isArray(parsed.pastPositions) && parsed.pastPositions.length > 0) {
+        const cleanPositions = parsed.pastPositions
+          .filter(
+            (pos): pos is PastPosition =>
+              !!pos &&
+              typeof pos.title === "string" &&
+              pos.title.trim().length > 0 &&
+              typeof pos.companyStage === "string" &&
+              typeof pos.durationMonths === "number" &&
+              Number.isFinite(pos.durationMonths) &&
+              pos.durationMonths >= 1,
+          )
+          .slice(0, MAX_PAST_POSITIONS);
+        if (cleanPositions.length > 0) setPastPositions(cleanPositions);
+      }
+    } catch (e) {
+      issues.push("pastPositions");
+      console.warn("[applyCvParse] pastPositions failed", e, parsed.pastPositions);
     }
+
+    try {
+      if (Array.isArray(parsed.languages) && parsed.languages.length > 0) {
+        const seen = new Set<string>();
+        const cleanLanguages = parsed.languages
+          .filter((l): l is LanguageRow => {
+            if (!l || typeof l.language !== "string" || !l.language.trim()) return false;
+            const key = l.language.trim().toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .slice(0, MAX_LANGUAGES);
+        if (cleanLanguages.length > 0) setLanguages(cleanLanguages);
+      }
+    } catch (e) {
+      issues.push("languages");
+      console.warn("[applyCvParse] languages failed", e, parsed.languages);
+    }
+
+    if (issues.length > 0) {
+      // Don't block the prefill — let the user see what we got and
+      // edit the rest manually. The amber banner above the form
+      // already says "review carefully".
+      console.warn("[applyCvParse] some fields skipped:", issues);
+    }
+
     setPrefilledFromCv(true);
     setPhase("form");
     setStep(1);
@@ -942,6 +1045,7 @@ export default function BetaPage() {
       studiesCount: parsed.studies?.length ?? 0,
       positionsCount: parsed.pastPositions?.length ?? 0,
       languagesCount: parsed.languages?.length ?? 0,
+      skippedFields: issues.length > 0 ? issues.join(",") : null,
     });
   }
 
@@ -1566,10 +1670,10 @@ function Step3(p: Step3Props) {
         </p>
       </div>
 
-      {/* Salary — current + target + currency */}
+      {/* Salary — current + target + currency. Required to anchor realism. */}
       <FieldWrap
-        label="Salary"
-        hint="Current comp anchors realism. We won't promise you a 4x jump if you're at €25k today — but we'll show you the closest move that gets you closer to the dream."
+        label="Salary *"
+        hint="Current comp anchors realism. We won't promise you a 4x jump if you're at €25k today — but we'll show you the closest move that gets you closer to the dream. Required: enter a number, check 'no income yet', or check 'not my top priority'."
       >
         <div className="flex flex-col gap-3">
           {/* Current salary */}
@@ -1617,8 +1721,9 @@ function Step3(p: Step3Props) {
                   </select>
                 </div>
                 <span className="text-xs text-ink-200/50">
-                  Optional but strongly encouraged. We use this to keep
-                  recommendations realistic.
+                  Required. We use this as a realism anchor — without a
+                  number we&apos;d be inventing fake salary bands. Tick the
+                  no-income box above if it&apos;s literally zero.
                 </span>
               </>
             )}
@@ -1688,8 +1793,8 @@ function Step3(p: Step3Props) {
         </div>
       </FieldWrap>
 
-      {/* Priority order */}
-      <FieldWrap label="What matters most?" hint="Rank position, money, and location. We weight recommendations against this.">
+      {/* Priority order — required */}
+      <FieldWrap label="What matters most? *" hint="Rank position, money, and location. We weight recommendations against this. Each must be different.">
         <div className="flex flex-col gap-2">
           {(["First", "Second", "Third"] as const).map((label, idx) => {
             const value =
@@ -1722,10 +1827,10 @@ function Step3(p: Step3Props) {
         </div>
       </FieldWrap>
 
-      {/* Future self */}
+      {/* Future self — required */}
       <FieldWrap
-        label="Where do you see yourself in 5 years? (optional)"
-        hint="Be specific — title, comp band, lifestyle, location. The more vivid, the better the recommendation."
+        label="Where do you see yourself in 5 years? *"
+        hint="Be specific — title, comp band, lifestyle, location. Min 40 characters. The more vivid, the better the recommendation."
       >
         <textarea
           value={p.futureSelf}
@@ -1735,15 +1840,21 @@ function Step3(p: Step3Props) {
           maxLength={800}
           className="form-input"
         />
-        <span className="self-end text-xs text-ink-200/50">
-          {p.futureSelf.length}/800
+        <span
+          className={`self-end text-xs ${
+            p.futureSelf.trim().length < 40
+              ? "text-amber-400/80"
+              : "text-ink-200/50"
+          }`}
+        >
+          {p.futureSelf.length}/800 · min 40
         </span>
       </FieldWrap>
 
-      {/* Dilemma */}
+      {/* Dilemma — required */}
       <FieldWrap
-        label="What career question can't you stop thinking about? (optional)"
-        hint="Be specific. The clearer the dilemma, the sharper the recommendation."
+        label="What career question can't you stop thinking about? *"
+        hint="Be specific. Min 30 characters. The clearer the dilemma, the sharper the recommendation."
       >
         <textarea
           value={p.dilemma}
@@ -1753,8 +1864,14 @@ function Step3(p: Step3Props) {
           maxLength={500}
           className="form-input"
         />
-        <span className="self-end text-xs text-ink-200/50">
-          {p.dilemma.length}/500
+        <span
+          className={`self-end text-xs ${
+            p.dilemma.trim().length < 30
+              ? "text-amber-400/80"
+              : "text-ink-200/50"
+          }`}
+        >
+          {p.dilemma.length}/500 · min 30
         </span>
       </FieldWrap>
 

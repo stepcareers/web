@@ -154,12 +154,23 @@ export const LanguageSchema = z.object({
 
 export const CurrencyEnum = z.enum(["EUR", "GBP", "USD"]);
 
-export const SalarySchema = z.object({
-  notAPriority: z.boolean().default(false),
-  current: z.coerce.number().int().min(0).max(2_000_000).optional(),
-  minAcceptable: z.coerce.number().int().min(0).max(2_000_000).optional(),
-  currency: CurrencyEnum.default("EUR"),
-});
+export const SalarySchema = z
+  .object({
+    notAPriority: z.boolean().default(false),
+    current: z.coerce.number().int().min(0).max(2_000_000).optional(),
+    minAcceptable: z.coerce.number().int().min(0).max(2_000_000).optional(),
+    currency: CurrencyEnum.default("EUR"),
+  })
+  .refine(
+    // Anchor for realism: the form must communicate ONE of:
+    //   - current salary (a number, 0 means "no income yet" via the
+    //     student/between-roles checkbox in the UI)
+    //   - notAPriority = true (user explicitly opts out)
+    // Without one of these the recommender invents salary bands, which
+    // is the fastest way to make the output read as fake.
+    (s) => s.notAPriority === true || typeof s.current === "number",
+    "Provide current comp (or 0 for no-income), or mark salary as not a priority.",
+  );
 
 export const LocationPrefSchema = z.object({
   preferred: z.string().max(200).optional(), // e.g. "Berlin, Milan, or remote EU"
@@ -192,12 +203,17 @@ export const RecommendInputSchema = z.object({
   pastPositions: z.array(PastPositionSchema).max(8).default([]),
   languages: z.array(LanguageSchema).min(1).max(8),
 
-  // Step 3 — what you're after (NEW)
-  salary: SalarySchema.optional(),
+  // Step 3 — what you're after
+  // The fields below were optional in v1; promoted to required because
+  // empty values produced generic, anchorless recommendations. Length
+  // minimums enforce a *useful* answer rather than "boh".
+  // location stays optional — many users genuinely don't have a preference,
+  // and forcing them to type "anywhere" adds noise.
+  salary: SalarySchema,
+  priorityOrder: PriorityOrderSchema,
+  futureSelf: z.string().min(40, "At least 40 characters — be specific.").max(800),
+  dilemma: z.string().min(30, "At least 30 characters — name the actual choice.").max(500),
   location: LocationPrefSchema.optional(),
-  priorityOrder: PriorityOrderSchema.optional(),
-  futureSelf: z.string().max(800).optional(),
-  dilemma: z.string().max(500).optional(),
 
   // Refinement context — typed by the user after seeing the first plan,
   // in response to "what we don't know about you". Fills gaps the model
