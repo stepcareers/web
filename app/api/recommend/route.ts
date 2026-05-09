@@ -37,13 +37,17 @@ const VOYAGE_MODEL = "voyage-3-large";
 const VOYAGE_DIMENSIONS = 1024;
 const MODEL_KEY = `${VOYAGE_MODEL}-${VOYAGE_DIMENSIONS}`;
 const TOP_K = 5;
-// Sonnet 4.6 — Haiku 4.5 had a quirk where it occasionally produced
-// `recommendations` as a JSON-encoded STRING instead of an array, which
-// Zod rejects. Sonnet is more reliable on nested-array structured output.
-// Risk: longer generation time (~50–60s) can hit Vercel Hobby's 60s cap
-// on rich profiles — handled by the salvage path in the streaming reader
-// (extracts partial result if final never arrives).
-const CLAUDE_MODEL = "claude-sonnet-4-6";
+// Haiku 4.5 — picked for speed and reliability under Vercel Hobby's 60s
+// function cap. Sonnet 4.6 was tried but consistently took 50–65s with
+// the current prompt length (14 hard rules + entry-level salary bands +
+// CV pre-fill bloating the input), making timeouts the dominant fail
+// mode. Haiku runs in 15–25s comfortably.
+//
+// Known Haiku quirk: occasionally emits `recommendations` as a
+// JSON-encoded STRING instead of a nested array. Handled by
+// tryRepairOutput() in the catch block — parses the string, re-validates
+// against Zod, and continues silently. End user never sees the bug.
+const CLAUDE_MODEL = "claude-haiku-4-5";
 
 /* ─── Pool singleton ────────────────────────────────────────────────── */
 
