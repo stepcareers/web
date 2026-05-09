@@ -21,7 +21,7 @@ const CSV_PATH = process.env.SEED_CSV_PATH
 
 const rawRowSchema = z.object({
   path_id: z.string().min(1),
-  locale: z.enum(["it", "uk", "eu"]),
+  locale: z.enum(["it", "uk", "eu", "us"]),
   starting_stage: z.enum([
     "university_student",
     "recent_grad",
