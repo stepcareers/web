@@ -83,8 +83,14 @@ export async function POST(req: NextRequest) {
   const body = parseResult.data;
 
   const t0 = Date.now();
-  try {
-    const result = await generateObject({
+
+  // Up to 2 attempts — Haiku 4.5 occasionally produces output that
+  // doesn't match the schema (e.g. branches[].trigger too short, or
+  // earlyPivotSignals with 1 item). Most retries succeed because the
+  // model isn't deterministic at temp 0.4. We bump temp slightly on
+  // retry to break out of any sticky bad pattern.
+  async function tryGenerate(attempt: number) {
+    return generateObject({
       model: anthropic(MODEL),
       schema: DecisionTreeResultSchema,
       system: DECISION_TREE_SYSTEM_PROMPT,
@@ -96,9 +102,25 @@ export async function POST(req: NextRequest) {
         },
         retrievedPathSlugs: body.retrievedPathSlugs,
       }),
-      temperature: 0.4,
+      temperature: attempt === 0 ? 0.4 : 0.55,
       maxOutputTokens: 2500,
     });
+  }
+
+  try {
+    let result;
+    try {
+      result = await tryGenerate(0);
+    } catch (firstErr) {
+      if (NoObjectGeneratedError.isInstance(firstErr)) {
+        console.warn(
+          "[/api/decision-tree] first attempt failed schema, retrying...",
+        );
+        result = await tryGenerate(1);
+      } else {
+        throw firstErr;
+      }
+    }
 
     return Response.json({
       tree: result.object,

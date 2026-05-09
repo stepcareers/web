@@ -70,8 +70,10 @@ export async function POST(req: NextRequest) {
   const body = parseResult.data;
 
   const t0 = Date.now();
-  try {
-    const result = await generateObject({
+
+  // Up to 2 attempts — same retry logic as /api/decision-tree.
+  async function tryGenerate(attempt: number) {
+    return generateObject({
       model: anthropic(MODEL),
       schema: ScenarioExpansionSchema,
       system: SCENARIO_EXPANSION_SYSTEM_PROMPT,
@@ -79,9 +81,25 @@ export async function POST(req: NextRequest) {
         rec: body.rec,
         profile: { ...body.profile, locale: body.profile.locale ?? "en" },
       }),
-      temperature: 0.4,
+      temperature: attempt === 0 ? 0.4 : 0.55,
       maxOutputTokens: 1800,
     });
+  }
+
+  try {
+    let result;
+    try {
+      result = await tryGenerate(0);
+    } catch (firstErr) {
+      if (NoObjectGeneratedError.isInstance(firstErr)) {
+        console.warn(
+          "[/api/scenario-expansion] first attempt failed schema, retrying...",
+        );
+        result = await tryGenerate(1);
+      } else {
+        throw firstErr;
+      }
+    }
 
     return Response.json({
       scenario: result.object,
