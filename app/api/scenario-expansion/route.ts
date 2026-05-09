@@ -25,7 +25,7 @@ import {
  */
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const MODEL = "claude-haiku-4-5";
 

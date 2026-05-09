@@ -310,87 +310,45 @@ export type FollowUpQuestionsResult = z.infer<
  * email/willingness-to-pay capture.
  * ──────────────────────────────────────────────────────────────── */
 
+// Schema constraints kept loose: Haiku is non-deterministic at the
+// fine-grained "exactly 3 items" level, and over-strict bounds caused
+// silent NoObjectGeneratedError on real prod traffic. We trust the
+// prompt to guide the shape; Zod just enforces the hard contract
+// (key presence, types, gross sanity).
 export const DecisionTreeStageSchema = z.object({
-  label: z
-    .string()
-    .min(5)
-    .max(40)
-    .describe(
-      "Time-window label, e.g. 'NOW → DAY 90', 'DAY 90 → MONTH 6', 'MONTH 6 → MONTH 18'.",
-    ),
-  main: z
-    .string()
-    .min(20)
-    .max(450)
-    .describe(
-      "1-3 sentences on the primary action/state during this window. Concrete, verb-led.",
-    ),
+  label: z.string().min(3).max(60),
+  main: z.string().min(15).max(700),
   branches: z
     .array(
       z.object({
-        trigger: z
-          .string()
-          .min(8)
-          .max(200)
-          .describe(
-            "The observable signal that triggers this branch. 'If your side project gets >100 WAU' / 'If onboarding is rough at week 6'.",
-          ),
-        outcome: z
-          .string()
-          .min(15)
-          .max(320)
-          .describe(
-            "What you should do if the trigger fires. Specific, time-bounded.",
-          ),
+        trigger: z.string().min(5).max(280),
+        outcome: z.string().min(8).max(400),
       }),
     )
-    .min(0)
-    .max(3)
-    .default([])
-    .describe("0-3 if-then forks for this window. Quality > quantity."),
+    .max(4)
+    .default([]),
 });
 
 export const DecisionTreeResultSchema = z.object({
-  anchorTitle: z
-    .string()
-    .min(5)
-    .max(160)
-    .describe("The recommendation this tree is anchored on (foundation rec)."),
+  anchorTitle: z.string().min(5).max(220),
   anchorLeverage: LeverageEnum,
   stages: z
     .array(DecisionTreeStageSchema)
-    .length(3)
-    .describe(
-      "Exactly 3 stages: NOW→D90, D90→M6, M6→M18. Year-5 lives in endScenarios.",
-    ),
-  endScenarios: z
-    .object({
-      best: z
-        .string()
-        .min(20)
-        .max(400)
-        .describe("Year-5 best case if everything goes right."),
-      base: z
-        .string()
-        .min(20)
-        .max(400)
-        .describe("Year-5 base case (most likely outcome)."),
-      worst: z
-        .string()
-        .min(20)
-        .max(400)
-        .describe(
-          "Year-5 worst case. Honest, not catastrophic — the realistic downside.",
-        ),
-    })
-    .describe("Year-5 fork: 3 scenarios for outcome distribution."),
-  earlyPivotSignals: z
-    .array(z.string().min(10).max(240))
     .min(2)
     .max(4)
     .describe(
-      "2-4 specific early-warning signals that should make the user pivot away from this anchor before month 6.",
+      "Time-window stages. Aim for 3 (NOW→D90, D90→M6, M6→M18) but accept 2-4 if the model deems it cleaner.",
     ),
+  endScenarios: z.object({
+    best: z.string().min(15).max(500),
+    base: z.string().min(15).max(500),
+    worst: z.string().min(15).max(500),
+  }),
+  earlyPivotSignals: z
+    .array(z.string().min(6).max(300))
+    .min(1)
+    .max(5)
+    .describe("Early-warning signals to pivot."),
 });
 
 export type DecisionTreeStage = z.infer<typeof DecisionTreeStageSchema>;
@@ -404,34 +362,12 @@ export type DecisionTreeResult = z.infer<typeof DecisionTreeResultSchema>;
  * ──────────────────────────────────────────────────────────────── */
 
 export const ScenarioExpansionSchema = z.object({
-  recTitle: z.string().min(5).max(160),
-  threeMonth: z
-    .string()
-    .min(20)
-    .max(400)
-    .describe("Where you'd be at month 3 if you take this rec."),
-  twelveMonth: z
-    .string()
-    .min(20)
-    .max(450)
-    .describe("Where you'd be at month 12, with leading indicators."),
-  fiveYear: z
-    .string()
-    .min(20)
-    .max(450)
-    .describe("The realistic year-5 state if you stick with this path."),
-  risks: z
-    .array(z.string().min(15).max(260))
-    .min(2)
-    .max(4)
-    .describe("2-4 specific risks. Not generic ('change is hard') — concrete."),
-  tradeoff: z
-    .string()
-    .min(15)
-    .max(360)
-    .describe(
-      "What this rec CLOSES. Opportunity cost — what you give up by going this way.",
-    ),
+  recTitle: z.string().min(5).max(220),
+  threeMonth: z.string().min(15).max(550),
+  twelveMonth: z.string().min(15).max(600),
+  fiveYear: z.string().min(15).max(600),
+  risks: z.array(z.string().min(8).max(320)).min(1).max(5),
+  tradeoff: z.string().min(10).max(450),
 });
 
 export type ScenarioExpansion = z.infer<typeof ScenarioExpansionSchema>;
