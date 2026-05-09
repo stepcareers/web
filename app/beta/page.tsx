@@ -364,7 +364,7 @@ const INTEREST_SUGGESTIONS = [
  * doing real work". */
 function loadingMessageFor(elapsedSec: number): string {
   if (elapsedSec < 5) return "Reading your profile…";
-  if (elapsedSec < 12) return "Searching 33 curated career paths…";
+  if (elapsedSec < 12) return "Searching 200+ curated career paths…";
   if (elapsedSec < 22) return "Finding profiles similar to yours…";
   if (elapsedSec < 35) return "Drafting recommendations grounded in real patterns…";
   if (elapsedSec < 50) return "Writing the honest take — direct, not polite…";
@@ -2578,14 +2578,14 @@ function MethodologyCard({ meta }: { meta: ApiResponse["meta"] }) {
           <p className="text-sm leading-relaxed text-ink-200/85">
             We embedded your profile (stage, field, skills, education, vision,
             dilemma) with Voyage AI, then retrieved the {paths.length} most
-            similar real career paths from our curated dataset of 33 paths
+            similar real career paths from our curated dataset of 200+ paths
             using cosine distance on pgvector. Each recommendation cites
             which of those paths supported it (see the path slugs on each
             card).
           </p>
           <p className="mt-3 text-sm leading-relaxed text-ink-200/85">
             We deliberately don&apos;t generate probability percentages.
-            With 33 paths and no control group, any &ldquo;+38% chance&rdquo;
+            With ~200 paths and no control group, any &ldquo;+38% chance&rdquo;
             number would be invented. Instead each move carries a leverage
             tag (foundation / accelerator / optional) and an evidence count
             from the retrieved paths — that&apos;s the honest version of
