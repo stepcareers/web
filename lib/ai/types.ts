@@ -255,6 +255,49 @@ export const CvParseResultSchema = z.object({
 
 export type CvParseResult = z.infer<typeof CvParseResultSchema>;
 
+/* ─── Follow-up questions (post-result Q&A refinement) ──────────── */
+//
+// After the user sees the first plan, the model has produced a
+// "whatWeDontKnow" paragraph listing gaps. We turn that paragraph into
+// 3 closed-form questions with 3-4 options each, so the user can sharpen
+// the plan in 30 seconds instead of writing a paragraph in the refine
+// box. Free-text "other" is always allowed for cases the options miss.
+export const FollowUpQuestionSchema = z.object({
+  question: z
+    .string()
+    .min(10)
+    .max(200)
+    .describe(
+      "A specific, closed question that fills one gap from whatWeDontKnow. e.g. 'Have you shipped any side projects publicly?'",
+    ),
+  options: z
+    .array(z.string().min(1).max(120))
+    .min(3)
+    .max(4)
+    .describe(
+      "3-4 short answer options the user can pick. Concrete, mutually distinct, cover the realistic spectrum. e.g. ['No, never', 'One small thing', 'Yes, with users', 'Yes, with revenue'].",
+    ),
+  rationale: z
+    .string()
+    .min(15)
+    .max(280)
+    .describe(
+      "1 short sentence on WHY this answer would change the plan. Shown as a hint under the question. e.g. 'If you've shipped, recommendations skew toward leveraging that — if not, toward shipping first.'",
+    ),
+});
+
+export const FollowUpQuestionsResultSchema = z.object({
+  questions: z
+    .array(FollowUpQuestionSchema)
+    .length(3)
+    .describe("Exactly 3 questions — quality over quantity."),
+});
+
+export type FollowUpQuestion = z.infer<typeof FollowUpQuestionSchema>;
+export type FollowUpQuestionsResult = z.infer<
+  typeof FollowUpQuestionsResultSchema
+>;
+
 export type Stage = z.infer<typeof StageEnum>;
 export type Field = z.infer<typeof FieldEnum>;
 export type DegreeLevel = z.infer<typeof DegreeLevelEnum>;

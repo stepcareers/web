@@ -2698,6 +2698,12 @@ function ResultView({
         <p className="mt-3 leading-relaxed">{result.whatWeDontKnow}</p>
       </div>
 
+      <FollowUpQuestionsBox
+        whatWeDontKnow={result.whatWeDontKnow}
+        recommendationTitles={result.recommendations.map((r) => r.title)}
+        onRefine={onRefine}
+      />
+
       <FillTheGapsBox onRefine={onRefine} />
 
       <PostResultCTA />
@@ -2719,6 +2725,271 @@ function ResultView({
         </pre>
       </details>
     </section>
+  );
+}
+
+/* ─── Follow-up Q&A box — structured refinement via 3 closed questions
+ *
+ * Renders 3 model-generated questions (loaded from /api/follow-up-questions)
+ * with 3-4 click-to-pick options each, plus an "Other" free-text fallback.
+ * The user's selections are concatenated into an additionalContext string
+ * and pushed through the existing refine pipeline (same shape FillTheGapsBox
+ * uses), so the regeneration code path is unchanged.
+ *
+ * UX choices:
+ * - Auto-fetch on mount. The user just finished reading the plan; they're
+ *   here, the latency is hidden behind their reading time.
+ * - 3 questions exactly. More feels like a survey, fewer doesn't fill
+ *   enough gaps.
+ * - "Other" is always available, even if the model's options seem
+ *   exhaustive — the model often misses edge cases (chronic illness,
+ *   visa status, family obligations).
+ * - Skip-friendly: the FillTheGapsBox below remains, so users who
+ *   prefer free-text aren't forced through this.
+ * ─────────────────────────────────────────────────────────────────── */
+
+interface FollowUpQuestion {
+  question: string;
+  options: string[];
+  rationale: string;
+}
+
+function FollowUpQuestionsBox({
+  whatWeDontKnow,
+  recommendationTitles,
+  onRefine,
+}: {
+  whatWeDontKnow: string;
+  recommendationTitles: string[];
+  onRefine: (additional: string) => void;
+}) {
+  const [questions, setQuestions] = useState<FollowUpQuestion[] | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "err">("loading");
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  // Per-question state: selected option index OR "other"; otherText.
+  // Indexed by question position. Both arrays grow with the questions
+  // length once they arrive.
+  const [picked, setPicked] = useState<(number | "other" | null)[]>([]);
+  const [otherTexts, setOtherTexts] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchQuestions() {
+      try {
+        const res = await fetch("/api/follow-up-questions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            whatWeDontKnow,
+            recommendationTitles,
+          }),
+        });
+        if (!res.ok) {
+          const errBody = (await res.json().catch(() => ({}))) as {
+            message?: string;
+          };
+          throw new Error(errBody.message ?? `API ${res.status}`);
+        }
+        const data = (await res.json()) as { questions: FollowUpQuestion[] };
+        if (cancelled) return;
+        setQuestions(data.questions);
+        setPicked(new Array(data.questions.length).fill(null));
+        setOtherTexts(new Array(data.questions.length).fill(""));
+        setStatus("ready");
+        track("followup_questions_loaded", { count: data.questions.length });
+      } catch (err) {
+        if (cancelled) return;
+        console.error("FollowUpQuestionsBox fetch error:", err);
+        setErrMsg(
+          err instanceof Error ? err.message : "Couldn't load questions.",
+        );
+        setStatus("err");
+      }
+    }
+    fetchQuestions();
+    return () => {
+      cancelled = true;
+    };
+    // We don't include whatWeDontKnow / recommendationTitles in deps —
+    // they're set once at result render and shouldn't trigger a refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function pickOption(qIdx: number, choice: number | "other") {
+    setPicked((prev) => {
+      const next = [...prev];
+      next[qIdx] = choice;
+      return next;
+    });
+  }
+
+  function setOtherText(qIdx: number, val: string) {
+    setOtherTexts((prev) => {
+      const next = [...prev];
+      next[qIdx] = val;
+      return next;
+    });
+  }
+
+  // Build the additionalContext string the recommend endpoint will see.
+  // Format: "Q: ...\nA: ..." pairs separated by blank lines. Skips
+  // unanswered questions silently.
+  function buildAdditionalContext(): string {
+    if (!questions) return "";
+    const blocks: string[] = [];
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      if (!q) continue;
+      const choice = picked[i];
+      let answer: string | null = null;
+      if (typeof choice === "number") {
+        const opt = q.options[choice];
+        if (opt) answer = opt;
+      } else if (choice === "other") {
+        const t = (otherTexts[i] ?? "").trim();
+        if (t.length > 0) answer = t;
+      }
+      if (answer) {
+        blocks.push(`Q: ${q.question}\nA: ${answer}`);
+      }
+    }
+    return blocks.join("\n\n");
+  }
+
+  const answeredCount = picked.filter((p, i) => {
+    if (p === null) return false;
+    if (p === "other") return (otherTexts[i] ?? "").trim().length >= 2;
+    return true;
+  }).length;
+  const ready = answeredCount >= 1; // at least one answer to bother regenerating
+
+  function submit() {
+    const ctx = buildAdditionalContext();
+    if (!ctx) return;
+    track("followup_questions_submitted", {
+      answeredCount,
+      totalQuestions: questions?.length ?? 0,
+    });
+    onRefine(ctx);
+  }
+
+  if (status === "loading") {
+    return (
+      <div className="rounded-lg border border-ink-200/20 bg-ink-200/[0.02] p-5">
+        <h3 className="text-base font-semibold leading-tight">
+          A few quick questions to sharpen this
+        </h3>
+        <p className="mt-2 text-sm text-ink-200/70">
+          Loading 3 quick questions based on what we don&apos;t know about you…
+        </p>
+      </div>
+    );
+  }
+
+  if (status === "err" || !questions) {
+    // Graceful degrade: keep the free-text refine box below, hide this
+    // one. Surface a tiny note so power users can report it.
+    return (
+      <div className="rounded-lg border border-ink-200/20 bg-ink-200/[0.02] p-3 text-xs text-ink-200/50">
+        Couldn&apos;t load the quick Q&amp;A
+        {errMsg ? `: ${errMsg}` : ""}. Use the refine box below instead.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-sky-400/30 bg-sky-400/[0.04] p-5">
+      <h3 className="text-base font-semibold leading-tight">
+        A few quick questions to sharpen this
+      </h3>
+      <p className="mt-2 text-sm text-ink-200/70">
+        Pick an option for each — or type your own. Then we&apos;ll regenerate
+        the plan with your answers as authoritative new context.
+      </p>
+
+      <div className="mt-5 flex flex-col gap-5">
+        {questions.map((q, qIdx) => {
+          const choice = picked[qIdx];
+          return (
+            <div
+              key={qIdx}
+              className="rounded-md border border-ink-200/15 bg-ink-200/[0.03] p-4"
+            >
+              <p className="text-sm font-medium">
+                <span className="mr-2 text-ink-200/50">Q{qIdx + 1}.</span>
+                {q.question}
+              </p>
+              <p className="mt-1 text-xs italic text-ink-200/55">
+                {q.rationale}
+              </p>
+
+              <div className="mt-3 flex flex-col gap-2">
+                {q.options.map((opt, oIdx) => {
+                  const isPicked = choice === oIdx;
+                  return (
+                    <button
+                      key={oIdx}
+                      type="button"
+                      onClick={() => pickOption(qIdx, oIdx)}
+                      className={`rounded-md border px-3 py-2 text-left text-sm transition ${
+                        isPicked
+                          ? "border-ink-50 bg-ink-50 text-ink-950"
+                          : "border-ink-200/30 bg-transparent hover:border-ink-200/60"
+                      }`}
+                    >
+                      <span className="mr-2 text-xs font-mono opacity-60">
+                        {String.fromCharCode(65 + oIdx)}
+                      </span>
+                      {opt}
+                    </button>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  onClick={() => pickOption(qIdx, "other")}
+                  className={`rounded-md border px-3 py-2 text-left text-sm transition ${
+                    choice === "other"
+                      ? "border-ink-50 bg-ink-50/10"
+                      : "border-dashed border-ink-200/30 hover:border-ink-200/60"
+                  }`}
+                >
+                  <span className="mr-2 text-xs font-mono opacity-60">+</span>
+                  Other (write below)
+                </button>
+
+                {choice === "other" && (
+                  <input
+                    type="text"
+                    autoFocus
+                    value={otherTexts[qIdx] ?? ""}
+                    onChange={(e) => setOtherText(qIdx, e.target.value)}
+                    placeholder="Your answer…"
+                    maxLength={280}
+                    className="form-input mt-1 text-sm"
+                  />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <span className="text-xs text-ink-200/50">
+          {answeredCount} of {questions.length} answered
+        </span>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!ready}
+          className="rounded-full bg-ink-50 px-5 py-2 text-sm font-medium text-ink-950 transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Refine with my answers →
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -2783,6 +3054,7 @@ function FillTheGapsBox({
 function PostResultCTA() {
   const [email, setEmail] = useState("");
   const [wantsPremium, setWantsPremium] = useState(false);
+  const [willingToPay, setWillingToPay] = useState<string>(""); // €/month, raw input
   const [status, setStatus] = useState<"idle" | "sending" | "ok" | "err">("idle");
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
@@ -2791,6 +3063,21 @@ function PostResultCTA() {
     if (!email.trim()) return;
     setStatus("sending");
     setErrMsg(null);
+
+    // willingToPay is only sent when the Premium checkbox is ticked AND
+    // the user typed a number. Empty + ticked = "interested but won't
+    // commit to a price" — still a useful signal, captured via
+    // mostInterestedIn=premium alone.
+    const willingNum = willingToPay.trim() ? Number(willingToPay) : undefined;
+    const willingToPayEur =
+      wantsPremium &&
+      typeof willingNum === "number" &&
+      Number.isFinite(willingNum) &&
+      willingNum >= 0 &&
+      willingNum <= 1000
+        ? Math.round(willingNum)
+        : undefined;
+
     try {
       const res = await fetch("/api/waitlist", {
         method: "POST",
@@ -2798,7 +3085,8 @@ function PostResultCTA() {
         body: JSON.stringify({
           email: email.trim(),
           mostInterestedIn: wantsPremium ? "premium" : "accountability",
-          source: "post_result",
+          source: wantsPremium ? "premium_post_result" : "post_result",
+          willingToPayEur,
         }),
       });
       if (!res.ok) {
@@ -2809,7 +3097,11 @@ function PostResultCTA() {
       }
       setStatus("ok");
       track("email_captured", { wantsPremium });
-      if (wantsPremium) track("premium_intent");
+      if (wantsPremium) {
+        track("premium_intent", {
+          willingToPayEur: willingToPayEur ?? null,
+        });
+      }
     } catch (err) {
       console.error("PostResultCTA submit error:", err);
       setErrMsg(err instanceof Error ? err.message : "Could not save. Try again.");
@@ -2868,7 +3160,10 @@ function PostResultCTA() {
           <input
             type="checkbox"
             checked={wantsPremium}
-            onChange={(e) => setWantsPremium(e.target.checked)}
+            onChange={(e) => {
+              setWantsPremium(e.target.checked);
+              if (!e.target.checked) setWillingToPay("");
+            }}
             className="mt-1"
           />
           <span>
@@ -2880,6 +3175,33 @@ function PostResultCTA() {
             </span>
           </span>
         </label>
+
+        {wantsPremium && (
+          <label className="ml-6 flex flex-col gap-1.5 rounded-md border border-ink-200/20 bg-ink-200/[0.03] p-3">
+            <span className="text-xs uppercase tracking-wider text-ink-200/60">
+              What would you pay per month? (optional)
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-ink-200/60">€</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={1000}
+                value={willingToPay}
+                onChange={(e) => setWillingToPay(e.target.value)}
+                placeholder="e.g. 15"
+                className="form-input flex-1"
+                disabled={status === "sending"}
+              />
+              <span className="text-xs text-ink-200/50">/ month</span>
+            </div>
+            <span className="text-xs text-ink-200/50">
+              Honest answer beats a polite zero. We use this to size the
+              early-access pricing.
+            </span>
+          </label>
+        )}
 
         {errMsg && (
           <p className="text-xs text-red-500 dark:text-red-400">{errMsg}</p>
