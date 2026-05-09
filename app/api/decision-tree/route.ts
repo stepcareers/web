@@ -116,12 +116,18 @@ export async function POST(req: NextRequest) {
     if (NoObjectGeneratedError.isInstance(err)) {
       console.error("[/api/decision-tree] NoObjectGeneratedError");
       console.error("  cause:", err.cause);
-      console.error("  raw text (truncated):", err.text?.slice(0, 600));
+      console.error("  raw text (truncated):", err.text?.slice(0, 1500));
       return Response.json(
         {
           error: "generation_failed",
           message:
             "Couldn't generate the decision tree. Try refreshing the page.",
+          // Debug payload — exposes raw model output + Zod cause so we
+          // can iterate the schema/prompt without redeploying. Remove
+          // once the schema stabilises.
+          debugRaw: err.text?.slice(0, 2000) ?? null,
+          debugCause:
+            err.cause instanceof Error ? err.cause.message : String(err.cause),
         },
         { status: 502 },
       );

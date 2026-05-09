@@ -98,11 +98,14 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (NoObjectGeneratedError.isInstance(err)) {
       console.error("[/api/scenario-expansion] NoObjectGeneratedError");
-      console.error("  raw text:", err.text?.slice(0, 600));
+      console.error("  raw text:", err.text?.slice(0, 1500));
       return Response.json(
         {
           error: "generation_failed",
           message: "Couldn't generate the scenario. Try again.",
+          debugRaw: err.text?.slice(0, 2000) ?? null,
+          debugCause:
+            err.cause instanceof Error ? err.cause.message : String(err.cause),
         },
         { status: 502 },
       );
