@@ -2762,6 +2762,8 @@ function ResultView({
 
       <FillTheGapsBox onRefine={onRefine} />
 
+      <PremiumCard />
+
       <PostResultCTA />
 
       <MethodologyCard meta={meta} />
@@ -2780,6 +2782,78 @@ function ResultView({
           {JSON.stringify(meta, null, 2)}
         </pre>
       </details>
+    </section>
+  );
+}
+
+/* ─── Premium card — standalone CTA shown above the email form ───
+ *
+ * Visible to free users (hidden once unlocked since they've already
+ * captured the offer). Lists 3 concrete value props with the same
+ * gradient styling as the in-content unlock buttons, so the user
+ * connects "the lock I clicked" with "this card."
+ * ──────────────────────────────────────────────────────────────── */
+
+function PremiumCard() {
+  const unlocked = usePremiumUnlocked();
+  if (unlocked) return null;
+  return (
+    <section className="rounded-xl border border-purple-400/40 bg-gradient-to-br from-purple-500/[0.08] via-fuchsia-500/[0.06] to-purple-400/[0.04] p-6">
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="text-lg font-semibold leading-tight">
+          Want the deeper plan?
+        </h2>
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-purple-300/80">
+          Premium
+        </span>
+      </div>
+      <p className="mt-2 text-sm text-ink-200/80">
+        The free plan tells you what to do. Premium tells you what happens
+        next, where it could break, and how to course-correct.
+      </p>
+
+      <ul className="mt-4 flex flex-col gap-2.5 text-sm">
+        <li className="flex items-start gap-2.5">
+          <span className="mt-0.5 text-purple-300">●</span>
+          <span>
+            <span className="font-medium">Full decision tree</span> — NOW →
+            DAY 90 → MONTH 6 → MONTH 18 → YEAR 5 with branches at every
+            stage and 3 outcome scenarios at the end.
+          </span>
+        </li>
+        <li className="flex items-start gap-2.5">
+          <span className="mt-0.5 text-purple-300">●</span>
+          <span>
+            <span className="font-medium">Scenario expansion per rec</span>{" "}
+            — for each of the 4 recommendations, the 3-month / 12-month /
+            5-year state plus risks and tradeoffs.
+          </span>
+        </li>
+        <li className="flex items-start gap-2.5">
+          <span className="mt-0.5 text-purple-300">●</span>
+          <span>
+            <span className="font-medium">Coming soon</span> — personalized
+            monthly 1:1 with a senior advisor, CV review tied to your plan,
+            and matched job opportunities.
+          </span>
+        </li>
+      </ul>
+
+      <button
+        type="button"
+        onClick={() => {
+          track("premium_card_clicked");
+          scrollToPremiumCTA();
+        }}
+        className="mt-5 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-7 py-3 text-base font-semibold text-white shadow-lg shadow-purple-500/20 transition hover:opacity-90 hover:shadow-purple-500/30"
+      >
+        <span>Get early access</span>
+        <span aria-hidden>→</span>
+      </button>
+      <p className="mt-3 text-xs text-ink-200/55">
+        Drop your email below + tell us what you&apos;d pay. We&apos;ll
+        reach out personally when Premium opens.
+      </p>
     </section>
   );
 }
@@ -3089,22 +3163,27 @@ function DecisionTreeBox({
             </div>
           ))}
 
-          <div className="mt-5 rounded-md border border-purple-400/40 bg-purple-400/[0.07] p-4">
-            <p className="text-sm font-medium leading-snug">
-              Unlock the rest:{" "}
-              <span className="text-ink-200/80">
-                MONTH 6 → MONTH 18 stage with branches, three Year-5 scenarios
-                (best/base/worst), and {tree.earlyPivotSignals.length} early
-                pivot signals.
-              </span>
+          <div className="mt-5 rounded-lg border border-purple-400/50 bg-gradient-to-br from-purple-500/[0.10] via-fuchsia-500/[0.07] to-purple-400/[0.05] p-5">
+            <p className="text-base font-semibold leading-snug">
+              You&apos;re seeing 1 of 3 stages.
+            </p>
+            <p className="mt-1 text-sm text-ink-200/80">
+              Unlock {tree.stages.length - 1} more stages with branches, three
+              Year-5 scenarios (best / base / worst), and{" "}
+              {tree.earlyPivotSignals.length} early-pivot signals.
             </p>
             <button
               type="button"
               onClick={onUnlockClick}
-              className="mt-3 rounded-full border border-purple-300/60 bg-purple-300/10 px-4 py-2 text-sm font-medium transition hover:bg-purple-300/20"
+              className="mt-4 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-purple-500/20 transition hover:opacity-90 hover:shadow-purple-500/30"
             >
-              Unlock with Premium →
+              <span>Unlock with Premium</span>
+              <span aria-hidden>→</span>
             </button>
+            <p className="mt-3 text-xs text-ink-200/55">
+              Early-access pricing. Email below — we&apos;ll reach out
+              personally when Premium opens.
+            </p>
           </div>
         </>
       )}
@@ -3224,17 +3303,24 @@ function RecScenarioExpansion({
     }
   }
 
-  // Locked: pill button that scrolls to CTA
+  // Locked: full-width card with clearer CTA
   if (!unlocked) {
     return (
       <button
         type="button"
         onClick={onClick}
-        className="mt-4 inline-flex items-center gap-2 rounded-md border border-purple-400/30 bg-purple-400/[0.05] px-3 py-1.5 text-xs text-ink-200/80 transition hover:bg-purple-400/[0.10]"
+        className="mt-5 flex w-full items-center justify-between gap-3 rounded-lg border border-purple-400/40 bg-gradient-to-r from-purple-500/[0.07] to-fuchsia-500/[0.05] px-4 py-3 text-left transition hover:from-purple-500/[0.12] hover:to-fuchsia-500/[0.10]"
       >
-        <span>🔒 What happens if I take this?</span>
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-purple-300/80">
-          Premium
+        <span className="flex flex-col gap-0.5">
+          <span className="text-sm font-semibold leading-snug">
+            🔒 What happens if I take this?
+          </span>
+          <span className="text-xs text-ink-200/65">
+            3-month / 12-month / 5-year scenarios + risks + tradeoff
+          </span>
+        </span>
+        <span className="shrink-0 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-3 py-1.5 text-xs font-semibold text-white">
+          Premium →
         </span>
       </button>
     );
