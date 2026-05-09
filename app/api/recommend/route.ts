@@ -37,12 +37,13 @@ const VOYAGE_MODEL = "voyage-3-large";
 const VOYAGE_DIMENSIONS = 1024;
 const MODEL_KEY = `${VOYAGE_MODEL}-${VOYAGE_DIMENSIONS}`;
 const TOP_K = 5;
-// Haiku 4.5 → 3–5x faster than Sonnet, fits comfortably in Vercel Hobby's
-// 60s cap even on CV-prefilled rich profiles. Quality is more concise but
-// with the strict prompt (rules 1–14, mandatory completeness, leverage +
-// pathEvidence schema annotations) the structured output is solid. Switch
-// back to claude-sonnet-4-6 if/when on Vercel Pro (300s cap).
-const CLAUDE_MODEL = "claude-haiku-4-5";
+// Sonnet 4.6 — Haiku 4.5 had a quirk where it occasionally produced
+// `recommendations` as a JSON-encoded STRING instead of an array, which
+// Zod rejects. Sonnet is more reliable on nested-array structured output.
+// Risk: longer generation time (~50–60s) can hit Vercel Hobby's 60s cap
+// on rich profiles — handled by the salvage path in the streaming reader
+// (extracts partial result if final never arrives).
+const CLAUDE_MODEL = "claude-sonnet-4-6";
 
 /* ─── Pool singleton ────────────────────────────────────────────────── */
 
@@ -144,6 +145,41 @@ function profileToQueryText(p: {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * Best-effort repair for known malformed LLM outputs.
+ *
+ * Haiku 4.5 (and Sonnet, rarely) sometimes emits `recommendations` as a
+ * JSON-encoded string instead of a nested array. This parses the raw
+ * text, walks the known shape, JSON.parses any field that should be an
+ * array but came as a string, then re-validates against the Zod schema.
+ *
+ * Returns the validated object on success, null on failure.
+ */
+function tryRepairOutput(rawText: string | undefined) {
+  if (!rawText) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+
+  const obj = parsed as Record<string, unknown>;
+  // Repair: stringified recommendations array
+  if (typeof obj.recommendations === "string") {
+    try {
+      obj.recommendations = JSON.parse(obj.recommendations);
+    } catch {
+      return null;
+    }
+  }
+
+  // Try Zod validation now
+  const result = RecommendResultSchema.safeParse(obj);
+  return result.success ? result.data : null;
 }
 
 /* ─── Route handler ─────────────────────────────────────────────────── */
@@ -304,6 +340,33 @@ export async function POST(req: NextRequest) {
           console.error("  cause:", err.cause);
           console.error("  finishReason:", err.finishReason);
           console.error("  raw text (truncated):", err.text?.slice(0, 2000));
+
+          // Repair attempt: some models (notably Haiku 4.5) occasionally
+          // emit `recommendations` as a JSON-encoded string instead of
+          // a nested array. Try to parse + re-validate before giving up.
+          const repaired = tryRepairOutput(err.text);
+          if (repaired) {
+            console.warn("[/api/recommend] repaired malformed output");
+            send({
+              type: "final",
+              result: repaired,
+              meta: {
+                model: CLAUDE_MODEL,
+                promptVersion: RECOMMEND_PROMPT_VERSION,
+                retrievalCount: retrievedPaths.length,
+                retrievedPathIds: retrievedPaths.map((p) => p.path_id),
+                tokens: { input: null, output: null },
+                timings: {
+                  embedMs: tEmbed,
+                  retrieveMs: tRetrieve,
+                  llmMs: Date.now() - tLlmStart,
+                  totalMs: Date.now() - t0,
+                },
+              },
+            });
+            return;
+          }
+
           const causeMsg =
             err.cause instanceof Error ? err.cause.message : String(err.cause);
           send({
