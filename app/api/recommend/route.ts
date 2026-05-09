@@ -154,15 +154,20 @@ function profileToQueryText(p: {
 /**
  * Best-effort repair for known malformed LLM outputs.
  *
- * Haiku 4.5 (and Sonnet, rarely) sometimes emits `recommendations` as a
- * JSON-encoded string instead of a nested array. This parses the raw
- * text, walks the known shape, JSON.parses any field that should be an
- * array but came as a string, then re-validates against the Zod schema.
+ * Haiku 4.5 occasionally emits `recommendations` as a JSON-encoded STRING
+ * containing not just the array but ALSO the whatWeDontKnow field crammed
+ * after the array's closing `]`. This produces:
  *
- * Returns the validated object on success, null on failure.
+ *   "recommendations": "[{...},{...},{...}],\n\"whatWeDontKnow\":\"...\"\n}"
+ *
+ * which is JSON-invalid. The repair below handles both the simple case
+ * (clean stringified array) and the harder case (everything jammed into
+ * one string) by walking brackets to find the array boundary and pulling
+ * whatWeDontKnow out via regex.
  */
 function tryRepairOutput(rawText: string | undefined) {
   if (!rawText) return null;
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawText);
@@ -172,18 +177,95 @@ function tryRepairOutput(rawText: string | undefined) {
   if (!parsed || typeof parsed !== "object") return null;
 
   const obj = parsed as Record<string, unknown>;
-  // Repair: stringified recommendations array
+
+  // First try: standard repair (recommendations is a clean stringified array)
   if (typeof obj.recommendations === "string") {
+    const recsStr = obj.recommendations;
+    let arr: unknown = null;
     try {
-      obj.recommendations = JSON.parse(obj.recommendations);
+      arr = JSON.parse(recsStr);
     } catch {
-      return null;
+      // Fall through to aggressive extraction
+    }
+
+    if (Array.isArray(arr)) {
+      obj.recommendations = arr;
+    } else {
+      // Aggressive: walk brackets to find the [...] boundary
+      const extracted = extractFirstJsonArray(recsStr);
+      if (!extracted) return null;
+      obj.recommendations = extracted;
+
+      // Also try to recover whatWeDontKnow if embedded in the same string
+      if (
+        typeof obj.whatWeDontKnow !== "string" ||
+        !obj.whatWeDontKnow
+      ) {
+        const recovered = extractWhatWeDontKnow(recsStr);
+        if (recovered) obj.whatWeDontKnow = recovered;
+      }
     }
   }
 
-  // Try Zod validation now
   const result = RecommendResultSchema.safeParse(obj);
   return result.success ? result.data : null;
+}
+
+/**
+ * Walk brackets in a string to extract the first balanced JSON array.
+ * Handles nested arrays/objects and quoted strings with escapes.
+ * Returns the parsed array or null if no valid array is found.
+ */
+function extractFirstJsonArray(s: string): unknown[] | null {
+  const start = s.indexOf("[");
+  if (start < 0) return null;
+  let depth = 0;
+  let inStr = false;
+  let escaped = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (c === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (c === '"') {
+      inStr = !inStr;
+      continue;
+    }
+    if (inStr) continue;
+    if (c === "[") depth++;
+    else if (c === "]") {
+      depth--;
+      if (depth === 0) {
+        const slice = s.slice(start, i + 1);
+        try {
+          const parsed = JSON.parse(slice);
+          return Array.isArray(parsed) ? parsed : null;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Pull the value of a "whatWeDontKnow" key out of a string that contains
+ * malformed JSON. Returns the unescaped string or null.
+ */
+function extractWhatWeDontKnow(s: string): string | null {
+  const match = s.match(/"whatWeDontKnow"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (!match || !match[1]) return null;
+  try {
+    return JSON.parse(`"${match[1]}"`);
+  } catch {
+    return match[1];
+  }
 }
 
 /* ─── Route handler ─────────────────────────────────────────────────── */
@@ -308,7 +390,10 @@ export async function POST(req: NextRequest) {
           system: RECOMMEND_SYSTEM_PROMPT,
           prompt: userPrompt,
           maxOutputTokens: 8000,
-          temperature: 0.5,
+          // Low temp: more deterministic output, less creative
+          // serialization (Haiku at 0.5 occasionally encoded the whole
+          // result as a string-inside-a-string).
+          temperature: 0.3,
         });
 
         for await (const partial of llmStream.partialObjectStream) {
