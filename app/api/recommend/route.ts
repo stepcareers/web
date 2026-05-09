@@ -5,6 +5,7 @@ import { anthropic } from "@ai-sdk/anthropic";
 import {
   RecommendInputSchema,
   RecommendResultSchema,
+  type RecommendResult,
 } from "@/lib/ai/types";
 import {
   buildRecommendUserPrompt,
@@ -255,6 +256,32 @@ function extractFirstJsonArray(s: string): unknown[] | null {
 }
 
 /**
+ * Enforce the "max 1 foundation" rule that the LLM prompt asks for but
+ * Haiku doesn't always honor. Keeps the FIRST foundation (recommendations
+ * are ranked, so #1 is the most consequential) and demotes the rest to
+ * accelerator. Returns a copy — never throws.
+ *
+ * Why post-validation instead of just tightening the prompt:
+ * we observed Haiku at temperature 0.3 still emitting 2 foundations on a
+ * non-trivial profile (UK CS student, FAANG vs. AI startup vs. master's).
+ * The prompt has the rule as Rule 13 but Haiku weights "this move feels
+ * essential" higher than the explicit cap. A deterministic post-pass is
+ * the only way to guarantee the contract for users.
+ */
+function enforceLeverageCap(result: RecommendResult): RecommendResult {
+  let foundationsSeen = 0;
+  return {
+    ...result,
+    recommendations: result.recommendations.map((rec) => {
+      if (rec.leverage !== "foundation") return rec;
+      foundationsSeen += 1;
+      if (foundationsSeen === 1) return rec; // keep the first
+      return { ...rec, leverage: "accelerator" as const };
+    }),
+  };
+}
+
+/**
  * Pull the value of a "whatWeDontKnow" key out of a string that contains
  * malformed JSON. Returns the unescaped string or null.
  */
@@ -403,9 +430,11 @@ export async function POST(req: NextRequest) {
         const finalObject = await llmStream.object;
         const usage = await llmStream.usage;
 
+        const cappedFinal = enforceLeverageCap(finalObject);
+
         send({
           type: "final",
-          result: finalObject,
+          result: cappedFinal,
           meta: {
             model: CLAUDE_MODEL,
             promptVersion: RECOMMEND_PROMPT_VERSION,
@@ -436,9 +465,10 @@ export async function POST(req: NextRequest) {
           const repaired = tryRepairOutput(err.text);
           if (repaired) {
             console.warn("[/api/recommend] repaired malformed output");
+            const cappedRepaired = enforceLeverageCap(repaired);
             send({
               type: "final",
-              result: repaired,
+              result: cappedRepaired,
               meta: {
                 model: CLAUDE_MODEL,
                 promptVersion: RECOMMEND_PROMPT_VERSION,

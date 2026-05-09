@@ -813,15 +813,27 @@ export default function BetaPage() {
           typeof latestPartial.whatWeDontKnow === "string" &&
           latestPartial.whatWeDontKnow.length > 20;
         if (completeRecs.length >= 2 && haveHonestTake && haveWhatWeDontKnow) {
+          // Salvage path bypasses the server's enforceLeverageCap, so apply
+          // the same rule client-side: keep the first foundation, demote
+          // the rest to accelerator. Otherwise users on a 60s timeout get
+          // 2-foundation plans while normal-path users don't.
+          let foundationsSeen = 0;
+          const cappedRecs = completeRecs.map((rec) => {
+            if (rec.leverage !== "foundation") return rec;
+            foundationsSeen += 1;
+            if (foundationsSeen === 1) return rec;
+            return { ...rec, leverage: "accelerator" as const };
+          });
+
           finalData = {
             result: {
-              recommendations: completeRecs,
+              recommendations: cappedRecs,
               honestTake: latestPartial.honestTake!,
               whatWeDontKnow: latestPartial.whatWeDontKnow!,
             },
             meta: {
-              model: "claude-sonnet-4-6",
-              promptVersion: "recommend@v1",
+              model: "claude-haiku-4-5",
+              promptVersion: "recommend@v2",
               retrievalCount: latestRetrieved.length,
               retrievedPathIds: latestRetrieved.map((p) => p.path_id),
               tokens: { input: null, output: null },
