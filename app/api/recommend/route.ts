@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 import { Pool } from "pg";
-import { streamObject, NoObjectGeneratedError } from "ai";
+import {
+  streamObject,
+  generateObject,
+  NoObjectGeneratedError,
+} from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import {
   RecommendInputSchema,
@@ -484,6 +488,53 @@ export async function POST(req: NextRequest) {
               },
             });
             return;
+          }
+
+          // Repair didn't work — the output is structurally wrong (e.g.
+          // missing `recommendations` entirely). Try a non-streaming
+          // generateObject retry with a higher temp to break out of the
+          // bad pattern. Same model, same schema, same prompt — just a
+          // re-roll. The user has been waiting on partials; we don't
+          // re-stream, just hold the spinner ~10-15s longer and emit
+          // the final when it lands.
+          console.warn(
+            "[/api/recommend] retrying with generateObject + bumped temp",
+          );
+          try {
+            const retryResult = await generateObject({
+              model: anthropic(CLAUDE_MODEL),
+              schema: RecommendResultSchema,
+              system: RECOMMEND_SYSTEM_PROMPT,
+              prompt: userPrompt,
+              maxOutputTokens: 8000,
+              temperature: 0.55,
+            });
+            const cappedRetry = enforceLeverageCap(retryResult.object);
+            console.warn("[/api/recommend] retry succeeded");
+            send({
+              type: "final",
+              result: cappedRetry,
+              meta: {
+                model: CLAUDE_MODEL,
+                promptVersion: RECOMMEND_PROMPT_VERSION,
+                retrievalCount: retrievedPaths.length,
+                retrievedPathIds: retrievedPaths.map((p) => p.path_id),
+                tokens: {
+                  input: retryResult.usage?.inputTokens ?? null,
+                  output: retryResult.usage?.outputTokens ?? null,
+                },
+                timings: {
+                  embedMs: tEmbed,
+                  retrieveMs: tRetrieve,
+                  llmMs: Date.now() - tLlmStart,
+                  totalMs: Date.now() - t0,
+                },
+              },
+            });
+            return;
+          } catch (retryErr) {
+            console.error("[/api/recommend] retry also failed:", retryErr);
+            // Fall through to error response
           }
 
           const causeMsg =
