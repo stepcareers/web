@@ -104,6 +104,10 @@ interface ProfileSnapshot {
   currency: Currency;
   futureSelf?: string;
   locationPreferred?: string;
+  // Added for the decision-tree + scenario-expansion features (Premium).
+  // Optional in the type so old persisted snapshots don't crash on hydrate.
+  dilemma?: string;
+  locale?: "en" | "it";
 }
 
 type Leverage = "foundation" | "accelerator" | "optional";
@@ -375,6 +379,39 @@ function loadingMessageFor(elapsedSec: number): string {
 // Recommendation. v1 entries lack those fields and would crash the
 // new RecommendationCard, so we silently invalidate them.
 const RESULT_STORAGE_KEY = "step:beta:lastResult:v2";
+
+/* ─── Premium unlock (decision tree + per-rec scenarios) ──────────
+ *
+ * Set when the user submits the post-result CTA with the "I'm
+ * interested in Premium" checkbox ticked. Acts as an "email/intent
+ * gate" until we ship real Stripe payments. Unlocked features:
+ *   - Full decision tree (vs locked preview = first stage main line)
+ *   - Per-rec scenario expansion (vs locked = no-op)
+ *
+ * Persisted across sessions on the same device so users who unlocked
+ * yesterday don't have to re-submit. Cleared by Start Over alongside
+ * the result.
+ * ──────────────────────────────────────────────────────────────── */
+const PREMIUM_UNLOCK_KEY = "step:premium:unlocked:v1";
+
+function readPremiumUnlocked(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(PREMIUM_UNLOCK_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writePremiumUnlocked(v: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    if (v) window.localStorage.setItem(PREMIUM_UNLOCK_KEY, "true");
+    else window.localStorage.removeItem(PREMIUM_UNLOCK_KEY);
+  } catch {
+    /* localStorage may be disabled — silent fail */
+  }
+}
 
 interface PersistedResult {
   data: ApiResponse;
@@ -719,7 +756,8 @@ export default function BetaPage() {
       locale: "en" as const,
     };
 
-    // Snapshot the profile for the result view (timeline NOW → vision)
+    // Snapshot the profile for the result view (timeline NOW → vision,
+    // decision-tree, per-rec scenario expansion).
     setProfileSnapshot({
       stage,
       field: fieldVal,
@@ -728,6 +766,8 @@ export default function BetaPage() {
       currency: salaryCurrency,
       futureSelf: futureSelf.trim() || undefined,
       locationPreferred: locationPreferred.trim() || undefined,
+      dilemma: dilemma.trim() || undefined,
+      locale: "en",
     });
 
     setPhase("loading");
@@ -2284,7 +2324,12 @@ function StreamingView({
       {completeRecs.length > 0 && (
         <div className="flex flex-col gap-5">
           {completeRecs.map((rec, i) => (
-            <RecommendationCard key={i} rec={rec} index={i + 1} />
+            <RecommendationCard
+              key={i}
+              rec={rec}
+              index={i + 1}
+              profile={null}
+            />
           ))}
         </div>
       )}
@@ -2680,7 +2725,12 @@ function ResultView({
 
       <div className="flex flex-col gap-6">
         {result.recommendations.map((rec, i) => (
-          <RecommendationCard key={i} rec={rec} index={i + 1} />
+          <RecommendationCard
+            key={i}
+            rec={rec}
+            index={i + 1}
+            profile={profile}
+          />
         ))}
       </div>
 
@@ -2697,6 +2747,12 @@ function ResultView({
         </h2>
         <p className="mt-3 leading-relaxed">{result.whatWeDontKnow}</p>
       </div>
+
+      <DecisionTreeBox
+        recommendations={result.recommendations}
+        profile={profile}
+        retrievedPathIds={meta.retrievedPathIds ?? []}
+      />
 
       <FollowUpQuestionsBox
         whatWeDontKnow={result.whatWeDontKnow}
@@ -2725,6 +2781,530 @@ function ResultView({
         </pre>
       </details>
     </section>
+  );
+}
+
+/* ─── Premium unlock helpers ───────────────────────────────────── */
+
+function scrollToPremiumCTA() {
+  if (typeof document === "undefined") return;
+  const el = document.getElementById("post-result-cta");
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  // Auto-tick the Premium checkbox + focus willingToPay if it's already
+  // rendered. Slight delay to let scroll settle.
+  setTimeout(() => {
+    const checkboxes = Array.from(
+      el.querySelectorAll<HTMLInputElement>("input[type=checkbox]"),
+    );
+    const premiumCheck = checkboxes.find((cb) =>
+      cb
+        .closest("label")
+        ?.textContent?.toLowerCase()
+        .includes("interested in premium"),
+    );
+    if (premiumCheck && !premiumCheck.checked) premiumCheck.click();
+    const emailInput = el.querySelector<HTMLInputElement>("input[type=email]");
+    if (emailInput && !emailInput.value) emailInput.focus();
+  }, 350);
+}
+
+/* ─── Hook: subscribes a component to premium unlock state ─────── */
+
+function usePremiumUnlocked(): boolean {
+  const [unlocked, setUnlocked] = useState<boolean>(() =>
+    readPremiumUnlocked(),
+  );
+  useEffect(() => {
+    function onUnlock() {
+      setUnlocked(readPremiumUnlocked());
+    }
+    // Custom event fires from same-tab unlocks (PostResultCTA submit).
+    window.addEventListener("step:premium:unlocked", onUnlock);
+    // Native event fires from other tabs sharing localStorage.
+    window.addEventListener("storage", onUnlock);
+    return () => {
+      window.removeEventListener("step:premium:unlocked", onUnlock);
+      window.removeEventListener("storage", onUnlock);
+    };
+  }, []);
+  return unlocked;
+}
+
+/* ─── Decision Tree box — Premium-gated post-result feature ────────
+ *
+ * Auto-fetches the decision tree on result render. Free users see only
+ * the first stage's "main" line as preview; the rest is rendered with a
+ * frosted-glass overlay + unlock CTA. Premium-unlocked users see the
+ * full tree (3 stages with branches + year-5 scenarios + early pivot
+ * signals).
+ *
+ * Unlock signal: localStorage `step:premium:unlocked:v1` = "true",
+ * set when PostResultCTA is submitted with wantsPremium ticked. We
+ * subscribe via custom event so the unlock is reactive without reload.
+ * ──────────────────────────────────────────────────────────────── */
+
+interface DecisionTreeStage {
+  label: string;
+  main: string;
+  branches: { trigger: string; outcome: string }[];
+}
+
+interface DecisionTreeData {
+  anchorTitle: string;
+  anchorLeverage: string;
+  stages: DecisionTreeStage[];
+  endScenarios: { best: string; base: string; worst: string };
+  earlyPivotSignals: string[];
+}
+
+function DecisionTreeBox({
+  recommendations,
+  profile,
+  retrievedPathIds,
+}: {
+  recommendations: Recommendation[];
+  profile: ProfileSnapshot | null;
+  retrievedPathIds: string[];
+}) {
+  const unlocked = usePremiumUnlocked();
+  const [tree, setTree] = useState<DecisionTreeData | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "err">("loading");
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  // Anchor the tree on the FOUNDATION rec (or rank-1 rec as fallback).
+  const foundationRec =
+    recommendations.find((r) => r.leverage === "foundation") ??
+    recommendations[0];
+
+  useEffect(() => {
+    if (!foundationRec || !profile) {
+      setStatus("err");
+      setErrMsg("Missing foundation recommendation or profile.");
+      return;
+    }
+    let cancelled = false;
+    async function fetchTree() {
+      try {
+        const res = await fetch("/api/decision-tree", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            foundationRec: {
+              title: foundationRec!.title,
+              rationale: foundationRec!.rationale,
+              leverage: foundationRec!.leverage,
+              pathEvidence: foundationRec!.pathEvidence,
+              twelveMonthOutcome: foundationRec!.twelveMonthOutcome,
+              ninetyDayActions: foundationRec!.ninetyDayActions,
+            },
+            profile: {
+              stage: profile!.stage,
+              field: profile!.field,
+              futureSelf: profile!.futureSelf,
+              dilemma: profile!.dilemma,
+              locale: profile!.locale ?? "en",
+            },
+            retrievedPathSlugs: retrievedPathIds.slice(0, 8),
+          }),
+        });
+        if (!res.ok) {
+          const errBody = (await res.json().catch(() => ({}))) as {
+            message?: string;
+          };
+          throw new Error(errBody.message ?? `API ${res.status}`);
+        }
+        const data = (await res.json()) as { tree: DecisionTreeData };
+        if (cancelled) return;
+        setTree(data.tree);
+        setStatus("ready");
+        track("decision_tree_loaded", {
+          stagesCount: data.tree.stages.length,
+          anchor: data.tree.anchorLeverage,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        console.error("DecisionTreeBox fetch error:", err);
+        setErrMsg(
+          err instanceof Error ? err.message : "Couldn't load the tree.",
+        );
+        setStatus("err");
+      }
+    }
+    fetchTree();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function onUnlockClick() {
+    track("decision_tree_lock_clicked");
+    scrollToPremiumCTA();
+  }
+
+  if (status === "loading") {
+    return (
+      <div className="rounded-lg border border-purple-400/30 bg-purple-400/[0.04] p-5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-semibold leading-tight">
+            🌳 Your decision tree
+          </h3>
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-purple-300/80">
+            Premium
+          </span>
+        </div>
+        <p className="mt-2 text-sm text-ink-200/70">
+          Mapping NOW → DAY 90 → MONTH 6 → MONTH 18 → YEAR 5 around your
+          foundation move…
+        </p>
+      </div>
+    );
+  }
+
+  if (status === "err" || !tree) {
+    return (
+      <div className="rounded-lg border border-ink-200/20 bg-ink-200/[0.02] p-3 text-xs text-ink-200/50">
+        Couldn&apos;t load the decision tree
+        {errMsg ? `: ${errMsg}` : ""}.
+      </div>
+    );
+  }
+
+  // Both locked + unlocked share the header. Locked shows preview of
+  // stage 1 only with a fade overlay over the rest; unlocked shows
+  // everything in clear.
+  return (
+    <div className="rounded-lg border border-purple-400/30 bg-purple-400/[0.04] p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-base font-semibold leading-tight">
+          🌳 Your decision tree
+        </h3>
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-purple-300/80">
+          Premium
+        </span>
+      </div>
+      <p className="mt-2 text-sm text-ink-200/70">
+        Anchored on:{" "}
+        <span className="font-medium text-ink-200/90">{tree.anchorTitle}</span>
+      </p>
+
+      {/* Always-visible: stage 1 main line (the preview) */}
+      <div className="mt-4 rounded-md border border-ink-200/15 bg-ink-200/[0.03] p-4">
+        <div className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
+          {tree.stages[0]?.label ?? "NOW → DAY 90"}
+        </div>
+        <p className="mt-2 text-sm leading-relaxed">{tree.stages[0]?.main}</p>
+      </div>
+
+      {unlocked ? (
+        <>
+          {/* Stage 1 branches + remaining 2 stages */}
+          {(tree.stages[0]?.branches ?? []).length > 0 && (
+            <div className="mt-2 ml-3 flex flex-col gap-2">
+              {tree.stages[0]!.branches.map((b, i) => (
+                <BranchRow key={i} branch={b} />
+              ))}
+            </div>
+          )}
+          {tree.stages.slice(1).map((s, i) => (
+            <div
+              key={i}
+              className="mt-4 rounded-md border border-ink-200/15 bg-ink-200/[0.03] p-4"
+            >
+              <div className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
+                {s.label}
+              </div>
+              <p className="mt-2 text-sm leading-relaxed">{s.main}</p>
+              {s.branches.length > 0 && (
+                <div className="mt-3 ml-3 flex flex-col gap-2">
+                  {s.branches.map((b, j) => (
+                    <BranchRow key={j} branch={b} />
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* Year-5 scenarios */}
+          <div className="mt-4 rounded-md border border-purple-400/30 bg-purple-400/[0.05] p-4">
+            <div className="text-xs font-semibold uppercase tracking-wider text-purple-200/80">
+              Year 5 — three scenarios
+            </div>
+            <div className="mt-2 grid gap-3 md:grid-cols-3">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300/80">
+                  Best
+                </div>
+                <p className="mt-1 text-sm leading-relaxed">
+                  {tree.endScenarios.best}
+                </p>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/70">
+                  Base
+                </div>
+                <p className="mt-1 text-sm leading-relaxed">
+                  {tree.endScenarios.base}
+                </p>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-300/80">
+                  Worst
+                </div>
+                <p className="mt-1 text-sm leading-relaxed">
+                  {tree.endScenarios.worst}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Pivot signals */}
+          <div className="mt-4 rounded-md border border-ink-200/15 bg-ink-200/[0.03] p-4">
+            <div className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
+              Pivot signals — when to bail early
+            </div>
+            <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed marker:text-ink-200/40">
+              {tree.earlyPivotSignals.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Locked teaser: show 1-2 truncated branches as fade hint */}
+          {(tree.stages[0]?.branches ?? []).slice(0, 1).map((b, i) => (
+            <div
+              key={i}
+              className="mt-2 ml-3 text-sm leading-relaxed text-ink-200/55"
+              style={{
+                maskImage:
+                  "linear-gradient(to bottom, rgba(0,0,0,1) 20%, rgba(0,0,0,0.15) 90%)",
+                WebkitMaskImage:
+                  "linear-gradient(to bottom, rgba(0,0,0,1) 20%, rgba(0,0,0,0.15) 90%)",
+              }}
+            >
+              <span className="text-purple-300/70">↳ If</span> {b.trigger}…
+            </div>
+          ))}
+
+          <div className="mt-5 rounded-md border border-purple-400/40 bg-purple-400/[0.07] p-4">
+            <p className="text-sm font-medium leading-snug">
+              Unlock the rest:{" "}
+              <span className="text-ink-200/80">
+                MONTH 6 → MONTH 18 stage with branches, three Year-5 scenarios
+                (best/base/worst), and {tree.earlyPivotSignals.length} early
+                pivot signals.
+              </span>
+            </p>
+            <button
+              type="button"
+              onClick={onUnlockClick}
+              className="mt-3 rounded-full border border-purple-300/60 bg-purple-300/10 px-4 py-2 text-sm font-medium transition hover:bg-purple-300/20"
+            >
+              Unlock with Premium →
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function BranchRow({
+  branch,
+}: {
+  branch: { trigger: string; outcome: string };
+}) {
+  return (
+    <div className="flex items-start gap-2 text-sm leading-relaxed">
+      <span className="mt-0.5 select-none text-ink-200/50">↳</span>
+      <div>
+        <span className="text-ink-200/70">If {branch.trigger}:</span>{" "}
+        <span>{branch.outcome}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Per-rec scenario expansion (Premium, lazy-loaded) ─────────── */
+
+interface ScenarioExpansionData {
+  recTitle: string;
+  threeMonth: string;
+  twelveMonth: string;
+  fiveYear: string;
+  risks: string[];
+  tradeoff: string;
+}
+
+function RecScenarioExpansion({
+  rec,
+  index,
+  profile,
+}: {
+  rec: Recommendation;
+  index: number;
+  profile: ProfileSnapshot | null;
+}) {
+  const unlocked = usePremiumUnlocked();
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<ScenarioExpansionData | null>(null);
+  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "err">(
+    "idle",
+  );
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  // Streaming view passes profile=null — don't render the lock there.
+  // The user is still seeing partials; the full ResultView (which has
+  // profile + the CTA target) will mount once streaming completes.
+  if (!profile) return null;
+
+  function onClick() {
+    track("scenario_lock_clicked", {
+      recIndex: index,
+      leverage: rec.leverage,
+    });
+    if (!unlocked) {
+      scrollToPremiumCTA();
+      return;
+    }
+    // Toggle open. Lazy-fetch on first open only.
+    setOpen((prev) => !prev);
+    if (!data && status === "idle") {
+      setStatus("loading");
+      fetchScenario();
+    }
+  }
+
+  async function fetchScenario() {
+    if (!profile) {
+      setStatus("err");
+      setErrMsg("Missing profile snapshot.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/scenario-expansion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rec: {
+            title: rec.title,
+            rationale: rec.rationale,
+            leverage: rec.leverage,
+            pathEvidence: rec.pathEvidence,
+            twelveMonthOutcome: rec.twelveMonthOutcome,
+          },
+          profile: {
+            stage: profile.stage,
+            field: profile.field,
+            futureSelf: profile.futureSelf,
+            dilemma: profile.dilemma,
+            locale: profile.locale ?? "en",
+          },
+        }),
+      });
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => ({}))) as {
+          message?: string;
+        };
+        throw new Error(errBody.message ?? `API ${res.status}`);
+      }
+      const json = (await res.json()) as { scenario: ScenarioExpansionData };
+      setData(json.scenario);
+      setStatus("ready");
+      track("scenario_loaded", { recIndex: index });
+    } catch (err) {
+      console.error("RecScenarioExpansion fetch error:", err);
+      setErrMsg(
+        err instanceof Error ? err.message : "Couldn't load scenario.",
+      );
+      setStatus("err");
+    }
+  }
+
+  // Locked: pill button that scrolls to CTA
+  if (!unlocked) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="mt-4 inline-flex items-center gap-2 rounded-md border border-purple-400/30 bg-purple-400/[0.05] px-3 py-1.5 text-xs text-ink-200/80 transition hover:bg-purple-400/[0.10]"
+      >
+        <span>🔒 What happens if I take this?</span>
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-purple-300/80">
+          Premium
+        </span>
+      </button>
+    );
+  }
+
+  // Unlocked: collapsible expand
+  return (
+    <div className="mt-4">
+      <button
+        type="button"
+        onClick={onClick}
+        className="inline-flex items-center gap-2 rounded-md border border-ink-200/30 px-3 py-1.5 text-xs transition hover:border-ink-200/60"
+      >
+        <span>{open ? "▼" : "▶"}</span>
+        <span>What happens if I take this?</span>
+      </button>
+
+      {open && (
+        <div className="mt-3 rounded-md border border-ink-200/15 bg-ink-200/[0.02] p-4">
+          {status === "loading" && (
+            <p className="text-xs italic text-ink-200/60">
+              Loading scenario expansion…
+            </p>
+          )}
+          {status === "err" && (
+            <p className="text-xs text-red-400">
+              {errMsg ?? "Failed to load."}
+            </p>
+          )}
+          {status === "ready" && data && (
+            <div className="flex flex-col gap-3 text-sm leading-relaxed">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/60">
+                  3 months in
+                </div>
+                <p className="mt-1">{data.threeMonth}</p>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/60">
+                  12 months in
+                </div>
+                <p className="mt-1">{data.twelveMonth}</p>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/60">
+                  5 years in
+                </div>
+                <p className="mt-1">{data.fiveYear}</p>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-300/80">
+                  Risks
+                </div>
+                <ul className="mt-1 list-disc space-y-1 pl-5 marker:text-ink-200/40">
+                  {data.risks.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-rose-300/80">
+                  Tradeoff
+                </div>
+                <p className="mt-1">{data.tradeoff}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3098,7 +3678,18 @@ function PostResultCTA() {
       setStatus("ok");
       track("email_captured", { wantsPremium });
       if (wantsPremium) {
+        // Submitting with the Premium box ticked unlocks decision tree +
+        // scenario expansion for the current device. Until Stripe ships,
+        // this is the gating signal — premium intent → unlock.
+        writePremiumUnlocked(true);
+        // Notify same-tab listeners (DecisionTreeBox, RecScenarioExpansion)
+        // — localStorage events only fire across tabs, so we use a custom
+        // event for the in-page reactivity.
+        window.dispatchEvent(new Event("step:premium:unlocked"));
         track("premium_intent", {
+          willingToPayEur: willingToPayEur ?? null,
+        });
+        track("premium_unlocked", {
           willingToPayEur: willingToPayEur ?? null,
         });
       }
@@ -3125,7 +3716,10 @@ function PostResultCTA() {
   }
 
   return (
-    <section className="rounded-xl border border-ink-200/30 bg-ink-200/[0.04] p-6 dark:bg-ink-50/[0.03]">
+    <section
+      id="post-result-cta"
+      className="rounded-xl border border-ink-200/30 bg-ink-200/[0.04] p-6 dark:bg-ink-50/[0.03]"
+    >
       <h2 className="text-lg font-semibold leading-tight">
         These are starting points. The work is in the next 90 days.
       </h2>
@@ -3250,9 +3844,11 @@ function LeverageBadge({ level }: { level: Leverage | undefined }) {
 function RecommendationCard({
   rec,
   index,
+  profile,
 }: {
   rec: Recommendation;
   index: number;
+  profile: ProfileSnapshot | null;
 }) {
   const confidenceColor =
     rec.confidence.level === "high"
@@ -3326,6 +3922,8 @@ function RecommendationCard({
       </div>
 
       <FeedbackWidget rec={rec} index={index} />
+
+      <RecScenarioExpansion rec={rec} index={index} profile={profile} />
     </article>
   );
 }

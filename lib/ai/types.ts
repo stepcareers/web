@@ -298,6 +298,144 @@ export type FollowUpQuestionsResult = z.infer<
   typeof FollowUpQuestionsResultSchema
 >;
 
+/* ─── Decision Tree (Premium) ─────────────────────────────────────
+ *
+ * Anchored on the FOUNDATION recommendation. Walks the user through
+ * 3 main time stages (NOW→D90, D90→M6, M6→M18) with bifurcations
+ * (if-then forks), then a YEAR-5 outlook with best/base/worst scenarios,
+ * plus 2-4 early pivot signals to watch for.
+ *
+ * Premium-gated in the UI: free users see only the first stage's
+ * `main` line as a preview, the rest is shown blurred + behind an
+ * email/willingness-to-pay capture.
+ * ──────────────────────────────────────────────────────────────── */
+
+export const DecisionTreeStageSchema = z.object({
+  label: z
+    .string()
+    .min(5)
+    .max(40)
+    .describe(
+      "Time-window label, e.g. 'NOW → DAY 90', 'DAY 90 → MONTH 6', 'MONTH 6 → MONTH 18'.",
+    ),
+  main: z
+    .string()
+    .min(20)
+    .max(450)
+    .describe(
+      "1-3 sentences on the primary action/state during this window. Concrete, verb-led.",
+    ),
+  branches: z
+    .array(
+      z.object({
+        trigger: z
+          .string()
+          .min(8)
+          .max(200)
+          .describe(
+            "The observable signal that triggers this branch. 'If your side project gets >100 WAU' / 'If onboarding is rough at week 6'.",
+          ),
+        outcome: z
+          .string()
+          .min(15)
+          .max(320)
+          .describe(
+            "What you should do if the trigger fires. Specific, time-bounded.",
+          ),
+      }),
+    )
+    .min(0)
+    .max(3)
+    .default([])
+    .describe("0-3 if-then forks for this window. Quality > quantity."),
+});
+
+export const DecisionTreeResultSchema = z.object({
+  anchorTitle: z
+    .string()
+    .min(5)
+    .max(160)
+    .describe("The recommendation this tree is anchored on (foundation rec)."),
+  anchorLeverage: LeverageEnum,
+  stages: z
+    .array(DecisionTreeStageSchema)
+    .length(3)
+    .describe(
+      "Exactly 3 stages: NOW→D90, D90→M6, M6→M18. Year-5 lives in endScenarios.",
+    ),
+  endScenarios: z
+    .object({
+      best: z
+        .string()
+        .min(20)
+        .max(400)
+        .describe("Year-5 best case if everything goes right."),
+      base: z
+        .string()
+        .min(20)
+        .max(400)
+        .describe("Year-5 base case (most likely outcome)."),
+      worst: z
+        .string()
+        .min(20)
+        .max(400)
+        .describe(
+          "Year-5 worst case. Honest, not catastrophic — the realistic downside.",
+        ),
+    })
+    .describe("Year-5 fork: 3 scenarios for outcome distribution."),
+  earlyPivotSignals: z
+    .array(z.string().min(10).max(240))
+    .min(2)
+    .max(4)
+    .describe(
+      "2-4 specific early-warning signals that should make the user pivot away from this anchor before month 6.",
+    ),
+});
+
+export type DecisionTreeStage = z.infer<typeof DecisionTreeStageSchema>;
+export type DecisionTreeResult = z.infer<typeof DecisionTreeResultSchema>;
+
+/* ─── Per-recommendation scenario expansion (Premium) ─────────────
+ *
+ * Lighter-weight than DecisionTree: a single rec, 3 horizons (3mo,
+ * 12mo, 5y) + risks + tradeoff. Lazy-loaded when the user clicks a
+ * specific rec's "What happens if I take this?" expand.
+ * ──────────────────────────────────────────────────────────────── */
+
+export const ScenarioExpansionSchema = z.object({
+  recTitle: z.string().min(5).max(160),
+  threeMonth: z
+    .string()
+    .min(20)
+    .max(400)
+    .describe("Where you'd be at month 3 if you take this rec."),
+  twelveMonth: z
+    .string()
+    .min(20)
+    .max(450)
+    .describe("Where you'd be at month 12, with leading indicators."),
+  fiveYear: z
+    .string()
+    .min(20)
+    .max(450)
+    .describe("The realistic year-5 state if you stick with this path."),
+  risks: z
+    .array(z.string().min(15).max(260))
+    .min(2)
+    .max(4)
+    .describe("2-4 specific risks. Not generic ('change is hard') — concrete."),
+  tradeoff: z
+    .string()
+    .min(15)
+    .max(360)
+    .describe(
+      "What this rec CLOSES. Opportunity cost — what you give up by going this way.",
+    ),
+});
+
+export type ScenarioExpansion = z.infer<typeof ScenarioExpansionSchema>;
+
 export type Stage = z.infer<typeof StageEnum>;
 export type Field = z.infer<typeof FieldEnum>;
 export type DegreeLevel = z.infer<typeof DegreeLevelEnum>;
