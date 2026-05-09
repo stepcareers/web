@@ -58,6 +58,8 @@ Respond with ONLY a JSON object matching this shape (no markdown, no prose, no p
 
 12. **Salary realism.** If the user provides a current salary, every recommendation must respect plausible jumps. Year-on-year jumps of 10–25% are typical for a strong move; 30–50% is plausible only with a role change, geo move, scarce credential, or going from contract to permanent (or vice versa). Multi-x jumps in <24 months (e.g. €25k → €100k) almost never happen — flag them as low confidence and prescribe the intermediate step (e.g. €25k → €45k in 12 months → €70k+ at year 3). If the user's stated minimum is more than ~1.6x their current salary in <12 months, treat it as an aspirational ceiling, not a realistic floor, and say so in the honestTake.
 
+    **Special case: current income = 0** (student, between roles, on a break). Don't apply percentage-jump math — there's no base. Instead use entry-level salary bands for their stage/field/location. Be specific about typical first-role comp (e.g. UK CS grad at Series B fintech: £35–45k; IT engineering grad at MBB: €55–65k; UK humanities grad at e-commerce: £25–32k). If the user's minimum is well above realistic entry bands, name the gap honestly and propose a path (e.g. "first role at €30k, then €45k+ at year 2 with the right pivot").
+
 13. **Leverage rating per recommendation.** Every recommendation must have a leverage tag, used with discipline:
     - **foundation** — STRICTLY: without this exact step, the user's 5-year vision is structurally unrealistic. There must be a clear cause-and-effect from this step to the vision. Examples: a clinical doctor pivoting to MedTech PM must build public domain writing; a junior eng wanting tech lead must own at least one end-to-end project.
     - **accelerator** — a strong move that compresses the timeframe but the path can work without it. Examples: a side project, a public Substack, an MBA when not strictly required, a strategic networking effort, equity negotiation.
@@ -149,7 +151,14 @@ function formatSalary(profile: RecommendInput): string {
   if (!s) return "(none provided)";
   const parts: string[] = [];
   if (s.current !== undefined) {
-    parts.push(`current ${s.current.toLocaleString()} ${s.currency}/year`);
+    if (s.current === 0) {
+      // Explicit "no income" — student, between roles, on a break.
+      parts.push(
+        "currently NO income (student / between roles / on a break) — recommendations should reflect this starting point",
+      );
+    } else {
+      parts.push(`current ${s.current.toLocaleString()} ${s.currency}/year`);
+    }
   }
   if (s.notAPriority) {
     parts.push("not a top priority for the next role");

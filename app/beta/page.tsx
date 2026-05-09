@@ -432,6 +432,7 @@ export default function BetaPage() {
 
   // Step 3
   const [salaryCurrent, setSalaryCurrent] = useState("");
+  const [noIncomeYet, setNoIncomeYet] = useState(false);
   const [salaryNotPriority, setSalaryNotPriority] = useState(false);
   const [salaryMin, setSalaryMin] = useState("");
   const [salaryCurrency, setSalaryCurrency] = useState<Currency>("EUR");
@@ -658,7 +659,11 @@ export default function BetaPage() {
       }
     }
 
-    const currentSalaryNum = salaryCurrent ? Number(salaryCurrent) : undefined;
+    const currentSalaryNum = noIncomeYet
+      ? 0
+      : salaryCurrent
+        ? Number(salaryCurrent)
+        : undefined;
     const minSalaryNum =
       salaryNotPriority || !salaryMin ? undefined : Number(salaryMin);
 
@@ -1009,6 +1014,8 @@ export default function BetaPage() {
             <Step3
               salaryCurrent={salaryCurrent}
               setSalaryCurrent={setSalaryCurrent}
+              noIncomeYet={noIncomeYet}
+              setNoIncomeYet={setNoIncomeYet}
               salaryNotPriority={salaryNotPriority}
               setSalaryNotPriority={setSalaryNotPriority}
               salaryMin={salaryMin}
@@ -1501,6 +1508,8 @@ function Step2(p: Step2Props) {
 interface Step3Props {
   salaryCurrent: string;
   setSalaryCurrent: (s: string) => void;
+  noIncomeYet: boolean;
+  setNoIncomeYet: (b: boolean) => void;
   salaryNotPriority: boolean;
   setSalaryNotPriority: (b: boolean) => void;
   salaryMin: string;
@@ -1552,32 +1561,55 @@ function Step3(p: Step3Props) {
       >
         <div className="flex flex-col gap-3">
           {/* Current salary */}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-2">
             <span className="text-xs uppercase tracking-wider text-ink-200/60">
               What do you make today? (annual, gross)
             </span>
-            <div className="flex gap-2">
+
+            <label className="flex items-center gap-2 text-sm">
               <input
-                type="number"
-                value={p.salaryCurrent}
-                onChange={(e) => p.setSalaryCurrent(e.target.value)}
-                placeholder="e.g. 28000"
-                min={0}
-                className="form-input flex-1"
+                type="checkbox"
+                checked={p.noIncomeYet}
+                onChange={(e) => {
+                  p.setNoIncomeYet(e.target.checked);
+                  if (e.target.checked) p.setSalaryCurrent("");
+                }}
               />
-              <select
-                value={p.salaryCurrency}
-                onChange={(e) => p.setSalaryCurrency(e.target.value as Currency)}
-                className="form-select w-24"
-              >
-                <option value="EUR">EUR €</option>
-                <option value="GBP">GBP £</option>
-                <option value="USD">USD $</option>
-              </select>
-            </div>
-            <span className="text-xs text-ink-200/50">
-              Optional but strongly encouraged. We use this to keep recommendations realistic.
-            </span>
+              <span>
+                I don&apos;t have an income yet (student, between roles, on a
+                break)
+              </span>
+            </label>
+
+            {!p.noIncomeYet && (
+              <>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={p.salaryCurrent}
+                    onChange={(e) => p.setSalaryCurrent(e.target.value)}
+                    placeholder="e.g. 28000"
+                    min={0}
+                    className="form-input flex-1"
+                  />
+                  <select
+                    value={p.salaryCurrency}
+                    onChange={(e) =>
+                      p.setSalaryCurrency(e.target.value as Currency)
+                    }
+                    className="form-select w-24"
+                  >
+                    <option value="EUR">EUR €</option>
+                    <option value="GBP">GBP £</option>
+                    <option value="USD">USD $</option>
+                  </select>
+                </div>
+                <span className="text-xs text-ink-200/50">
+                  Optional but strongly encouraged. We use this to keep
+                  recommendations realistic.
+                </span>
+              </>
+            )}
           </div>
 
           {/* Target / minimum */}
