@@ -3031,22 +3031,52 @@ function scrollToPremiumCTA() {
 /* ─── Hook: subscribes a component to premium unlock state ─────── */
 
 function usePremiumUnlocked(): boolean {
+  const { data: session, status } = useSession();
   const [unlocked, setUnlocked] = useState<boolean>(() =>
     readPremiumUnlocked(),
   );
+
+  // Listen for in-page unlocks (PostResultCTA submit) and cross-tab
+  // localStorage changes.
   useEffect(() => {
     function onUnlock() {
       setUnlocked(readPremiumUnlocked());
     }
-    // Custom event fires from same-tab unlocks (PostResultCTA submit).
     window.addEventListener("step:premium:unlocked", onUnlock);
-    // Native event fires from other tabs sharing localStorage.
     window.addEventListener("storage", onUnlock);
     return () => {
       window.removeEventListener("step:premium:unlocked", onUnlock);
       window.removeEventListener("storage", onUnlock);
     };
   }, []);
+
+  // Authenticated user → check the server for previously-signaled
+  // Premium intent on this email (could have been from a previous
+  // device or after clearing cookies). If found, auto-unlock locally
+  // so the user doesn't see the CTA again.
+  useEffect(() => {
+    if (status !== "authenticated" || !session?.user?.email) return;
+    if (readPremiumUnlocked()) return; // already unlocked locally
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/me/premium-status");
+        if (!res.ok) return;
+        const data = (await res.json()) as { premium: boolean };
+        if (cancelled) return;
+        if (data.premium) {
+          writePremiumUnlocked(true);
+          window.dispatchEvent(new Event("step:premium:unlocked"));
+        }
+      } catch {
+        // Best-effort sync; on failure the local state stays put.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, session?.user?.email]);
+
   return unlocked;
 }
 
@@ -3869,6 +3899,17 @@ function PostResultCTA() {
   const [status, setStatus] = useState<"idle" | "sending" | "ok" | "err">("idle");
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
+  // If the user has already signaled Premium (this device or any device
+  // they've signed in on), don't ask them again. The check-ins flow
+  // remains available; just the Premium upsell goes away.
+  const alreadyPremium = usePremiumUnlocked();
+  const { data: session } = useSession();
+  // Pre-fill email when authenticated — saves typing for returning users.
+  useEffect(() => {
+    if (session?.user?.email && !email) setEmail(session.user.email);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.email]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
@@ -3981,51 +4022,67 @@ function PostResultCTA() {
           </button>
         </div>
 
-        <label className="flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={wantsPremium}
-            onChange={(e) => {
-              setWantsPremium(e.target.checked);
-              if (!e.target.checked) setWillingToPay("");
-            }}
-            className="mt-1"
-          />
-          <span>
-            <span className="font-medium">I&apos;m interested in Premium.</span>{" "}
-            <span className="text-ink-200/70 dark:text-ink-200/60">
-              Personalized monthly 1:1 with a senior advisor, CV review tied to
-              your plan, and matched job opportunities. Early access pricing
-              when it opens.
-            </span>
-          </span>
-        </label>
-
-        {wantsPremium && (
-          <label className="ml-6 flex flex-col gap-1.5 rounded-md border border-ink-200/20 bg-ink-200/[0.03] p-3">
-            <span className="text-xs uppercase tracking-wider text-ink-200/60">
-              What would you pay per month? (optional)
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-ink-200/60">€</span>
+        {/* Premium upsell — hidden when the user has already signaled
+            Premium intent on this device or any device they've signed
+            in on (server-side check via /api/me/premium-status). */}
+        {!alreadyPremium && (
+          <>
+            <label className="flex items-start gap-2 text-sm">
               <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={1000}
-                value={willingToPay}
-                onChange={(e) => setWillingToPay(e.target.value)}
-                placeholder="e.g. 15"
-                className="form-input flex-1"
-                disabled={status === "sending"}
+                type="checkbox"
+                checked={wantsPremium}
+                onChange={(e) => {
+                  setWantsPremium(e.target.checked);
+                  if (!e.target.checked) setWillingToPay("");
+                }}
+                className="mt-1"
               />
-              <span className="text-xs text-ink-200/50">/ month</span>
-            </div>
-            <span className="text-xs text-ink-200/50">
-              Honest answer beats a polite zero. We use this to size the
-              early-access pricing.
-            </span>
-          </label>
+              <span>
+                <span className="font-medium">
+                  I&apos;m interested in Premium.
+                </span>{" "}
+                <span className="text-ink-200/70 dark:text-ink-200/60">
+                  Personalized monthly 1:1 with a senior advisor, CV review
+                  tied to your plan, and matched job opportunities. Early
+                  access pricing when it opens.
+                </span>
+              </span>
+            </label>
+
+            {wantsPremium && (
+              <label className="ml-6 flex flex-col gap-1.5 rounded-md border border-ink-200/20 bg-ink-200/[0.03] p-3">
+                <span className="text-xs uppercase tracking-wider text-ink-200/60">
+                  What would you pay per month? (optional)
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-ink-200/60">€</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={1000}
+                    value={willingToPay}
+                    onChange={(e) => setWillingToPay(e.target.value)}
+                    placeholder="e.g. 15"
+                    className="form-input flex-1"
+                    disabled={status === "sending"}
+                  />
+                  <span className="text-xs text-ink-200/50">/ month</span>
+                </div>
+                <span className="text-xs text-ink-200/50">
+                  Honest answer beats a polite zero. We use this to size the
+                  early-access pricing.
+                </span>
+              </label>
+            )}
+          </>
+        )}
+
+        {alreadyPremium && (
+          <p className="text-xs text-ink-200/55">
+            ✓ You&apos;re on the Premium early-access list — we&apos;ll
+            reach out personally when it opens.
+          </p>
         )}
 
         {errMsg && (
@@ -4371,8 +4428,22 @@ function ErrorView({
 
 function Footer() {
   return (
-    <footer className="mt-16 flex flex-col gap-2 text-xs text-ink-200/50 md:flex-row md:justify-between">
-      <span>© {new Date().getFullYear()} Step</span>
+    <footer className="mt-16 flex flex-col gap-4 text-xs text-ink-200/50 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <span>© {new Date().getFullYear()} Step</span>
+        <Link
+          href="/how-it-works"
+          className="underline-offset-4 transition hover:underline hover:text-ink-200/80"
+        >
+          How it works
+        </Link>
+        <Link
+          href="/about"
+          className="underline-offset-4 transition hover:underline hover:text-ink-200/80"
+        >
+          About
+        </Link>
+      </div>
       <span>Built with care in Italy &amp; the UK.</span>
     </footer>
   );

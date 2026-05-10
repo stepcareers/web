@@ -11,7 +11,9 @@ import { redirect } from "next/navigation";
 import { auth, signIn } from "@/auth";
 
 export const metadata = {
-  title: "Sign in — Step",
+  title: "Sign in",
+  // Auth pages have no SEO value and should never appear in search.
+  robots: { index: false, follow: false },
 };
 
 async function googleAction() {

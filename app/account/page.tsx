@@ -9,7 +9,9 @@ import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 
 export const metadata = {
-  title: "Account — Step",
+  title: "Account",
+  // Auth-gated page; never indexed.
+  robots: { index: false, follow: false },
 };
 
 async function logoutAction() {

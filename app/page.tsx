@@ -89,16 +89,68 @@ export default function LandingPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col px-6 py-10 md:py-16">
+      {/* Structured data — Organization + WebApplication, used by Google
+          for rich snippets in search results. */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@graph": [
+              {
+                "@type": "Organization",
+                "@id": "https://step.careers/#org",
+                name: "Step",
+                url: "https://step.careers",
+                description:
+                  "AI career advice grounded in real career patterns. Step gives ambitious students and early-career professionals 3–5 ranked next moves with concrete 90-day actions.",
+              },
+              {
+                "@type": "WebApplication",
+                name: "Step",
+                url: "https://step.careers",
+                applicationCategory: "BusinessApplication",
+                operatingSystem: "Web",
+                description:
+                  "AI career planner. Get 3–5 ranked next-step recommendations grounded in 200+ curated career paths. Includes 90-day actions, 12-month outcome, 5-year vision bridge.",
+                offers: {
+                  "@type": "Offer",
+                  price: "0",
+                  priceCurrency: "EUR",
+                  description: "Free during beta",
+                },
+                publisher: { "@id": "https://step.careers/#org" },
+                featureList: [
+                  "3–5 ranked career recommendations per session",
+                  "90-day actionable plans",
+                  "Decision tree visualization",
+                  "Per-recommendation scenario expansion",
+                  "Honest take in senior peer voice",
+                  "Salary realism anchored to current comp",
+                ],
+              },
+            ],
+          }),
+        }}
+      />
       <header className="mb-10 flex items-center justify-between">
         <p className="text-sm font-medium tracking-wide text-ink-200/80 dark:text-ink-200/60">
           step.careers
         </p>
-        <Link
-          href="/beta"
-          className="text-xs uppercase tracking-wider text-ink-200/60 transition hover:text-ink-50"
-        >
-          Try the beta →
-        </Link>
+        <nav className="flex items-center gap-4 text-xs uppercase tracking-wider text-ink-200/60">
+          <Link
+            href="/how-it-works"
+            className="transition hover:text-ink-50"
+          >
+            How it works
+          </Link>
+          <Link
+            href="/beta"
+            className="transition hover:text-ink-50"
+          >
+            Try the beta →
+          </Link>
+        </nav>
       </header>
 
       {/* Hero ─────────────────────────────────────────────────── */}
@@ -306,8 +358,28 @@ export default function LandingPage() {
       </section>
 
       {/* Footer ──────────────────────────────────────────────── */}
-      <footer className="mt-20 flex flex-col gap-2 text-xs text-ink-200/50 md:flex-row md:justify-between">
-        <span>© {new Date().getFullYear()} Step</span>
+      <footer className="mt-20 flex flex-col gap-4 text-xs text-ink-200/50 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <span>© {new Date().getFullYear()} Step</span>
+          <Link
+            href="/how-it-works"
+            className="underline-offset-4 transition hover:underline hover:text-ink-200/80"
+          >
+            How it works
+          </Link>
+          <Link
+            href="/about"
+            className="underline-offset-4 transition hover:underline hover:text-ink-200/80"
+          >
+            About
+          </Link>
+          <Link
+            href="/beta"
+            className="underline-offset-4 transition hover:underline hover:text-ink-200/80"
+          >
+            Beta
+          </Link>
+        </div>
         <span>Built with care in Italy &amp; the UK.</span>
       </footer>
     </main>
