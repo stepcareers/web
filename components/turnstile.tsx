@@ -15,7 +15,13 @@
  * silently no-ops and onToken is never called — the form should
  * accept "no token" in that case (the server side does the same).
  */
-import { useEffect, useId, useRef } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useRef,
+} from "react";
 
 declare global {
   interface Window {
@@ -72,21 +78,45 @@ export interface TurnstileWidgetHandle {
   reset: () => void;
 }
 
-export function TurnstileWidget({
-  onToken,
-  onError,
-  onExpired,
-  className,
-}: {
+export interface TurnstileWidgetProps {
   onToken: (token: string) => void;
   onError?: () => void;
   onExpired?: () => void;
   className?: string;
-}) {
+}
+
+export const TurnstileWidget = forwardRef<
+  TurnstileWidgetHandle,
+  TurnstileWidgetProps
+>(function TurnstileWidget(
+  { onToken, onError, onExpired, className },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
   const id = useId();
   const sitekey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+
+  // Expose a reset() to the parent so it can request a fresh token after
+  // each successful POST — Turnstile tokens are single-use, so after the
+  // server consumes one, the widget's old token is dead. The parent should
+  // call reset() right after a successful submit so a new challenge is
+  // already in flight by the time the user refines or retries.
+  useImperativeHandle(
+    ref,
+    () => ({
+      reset() {
+        if (typeof window === "undefined") return;
+        if (!window.turnstile || !widgetIdRef.current) return;
+        try {
+          window.turnstile.reset(widgetIdRef.current);
+        } catch (err) {
+          console.warn("[turnstile] reset failed:", err);
+        }
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     // No site key in env → silently skip. The server-side verifier is
@@ -125,10 +155,11 @@ export function TurnstileWidget({
           /* ignore */
         }
       }
+      widgetIdRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sitekey]);
 
   if (!sitekey) return null;
   return <div ref={containerRef} id={`turnstile-${id}`} className={className} />;
-}
+});

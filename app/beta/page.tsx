@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import posthog from "posthog-js";
-import { TurnstileWidget } from "@/components/turnstile";
+import {
+  TurnstileWidget,
+  type TurnstileWidgetHandle,
+} from "@/components/turnstile";
 
 // Thin wrapper so capture call sites stay short and we have a single place
 // to short-circuit if PostHog isn't initialized (key missing in env).
@@ -534,6 +537,9 @@ export default function BetaPage() {
   // isn't set the widget no-ops and this stays null — the server-side verifier
   // also no-ops in that case so dev still works.
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  // Ref to the widget so we can imperatively reset() after each submit and
+  // get a fresh token for refine/retry. Tokens are single-use server-side.
+  const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
 
   // Tick elapsed seconds while loading or streaming.
   useEffect(() => {
@@ -1079,6 +1085,13 @@ export default function BetaPage() {
       track("result_failed", {
         message: err instanceof Error ? err.message.slice(0, 100) : "unknown",
       });
+    } finally {
+      // Turnstile tokens are single-use — once the server consumes one
+      // (or rejects this request), the cached token is dead. Reset the
+      // widget so a fresh token is ready in the background by the time
+      // the user clicks Refine, retries, or answers a follow-up question.
+      setTurnstileToken(null);
+      turnstileRef.current?.reset();
     }
   }
 
@@ -1321,18 +1334,6 @@ export default function BetaPage() {
             />
           )}
 
-          {/* Bot-check widget. Only mounts on Step 3 (the only step that posts).
-              Renders nothing in dev (no NEXT_PUBLIC_TURNSTILE_SITE_KEY). */}
-          {step === 3 && (
-            <div className="mt-8 flex justify-end">
-              <TurnstileWidget
-                onToken={setTurnstileToken}
-                onExpired={() => setTurnstileToken(null)}
-                onError={() => setTurnstileToken(null)}
-              />
-            </div>
-          )}
-
           <div className="mt-10 flex items-center justify-between gap-3">
             <button
               type="button"
@@ -1395,6 +1396,35 @@ export default function BetaPage() {
           onReset={handleReset}
         />
       )}
+
+      {/* Bot-check widget. Always mounted at the page level so the imperative
+          reset() survives phase transitions (form → loading → streaming →
+          result) — refine and retry POST again from the result/error view
+          and need a fresh single-use token. Hidden everywhere except where
+          the user can submit (Step 3 of the form, or the result view's
+          refine actions). Renders null in dev when NEXT_PUBLIC_TURNSTILE_SITE_KEY
+          isn't set. */}
+      <div
+        className={
+          (phase === "form" && step === 3) ||
+          phase === "result" ||
+          phase === "error"
+            ? "mt-8 flex justify-end"
+            : "hidden"
+        }
+        aria-hidden={
+          !((phase === "form" && step === 3) ||
+            phase === "result" ||
+            phase === "error")
+        }
+      >
+        <TurnstileWidget
+          ref={turnstileRef}
+          onToken={setTurnstileToken}
+          onExpired={() => setTurnstileToken(null)}
+          onError={() => setTurnstileToken(null)}
+        />
+      </div>
 
       <Footer />
     </main>
