@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import posthog from "posthog-js";
 
 // Thin wrapper so capture call sites stay short and we have a single place
@@ -1098,16 +1099,19 @@ export default function BetaPage() {
   /* ─ Render ─ */
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col px-6 py-10 md:py-14">
-      <header className="mb-8 flex items-center justify-between">
+      <header className="mb-8 flex items-center justify-between gap-3">
         <Link
           href="/"
           className="text-sm font-medium tracking-wide text-ink-200/80 transition hover:opacity-70 dark:text-ink-200/60"
         >
           step.careers
         </Link>
-        <span className="rounded-full border border-ink-200/30 px-2.5 py-0.5 text-xs uppercase tracking-wider text-ink-200/60">
-          beta
-        </span>
+        <div className="flex items-center gap-3">
+          <AuthHeaderLink />
+          <span className="rounded-full border border-ink-200/30 px-2.5 py-0.5 text-xs uppercase tracking-wider text-ink-200/60">
+            beta
+          </span>
+        </div>
       </header>
 
       {phase === "intro" && (
@@ -1922,6 +1926,36 @@ function Step3(p: Step3Props) {
         for the check-in sequence you opt into.
       </p>
     </section>
+  );
+}
+
+/* ─── Auth-aware header link ──────────────────────────────────────
+ *
+ * Anonymous: "Sign in" → /login.
+ * Authenticated: "Account" → /account (which shows email + history).
+ * Loading: render nothing to avoid layout flash.
+ * ──────────────────────────────────────────────────────────────── */
+
+function AuthHeaderLink() {
+  const { data: session, status } = useSession();
+  if (status === "loading") return null;
+  if (session?.user) {
+    return (
+      <Link
+        href="/account"
+        className="text-xs font-medium text-ink-200/80 underline-offset-4 transition hover:underline"
+      >
+        Account
+      </Link>
+    );
+  }
+  return (
+    <Link
+      href="/login"
+      className="text-xs font-medium text-ink-200/80 underline-offset-4 transition hover:underline"
+    >
+      Sign in
+    </Link>
   );
 }
 

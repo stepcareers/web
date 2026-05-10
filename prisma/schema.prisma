@@ -27,21 +27,65 @@ datasource db {
 }
 
 // ─── Users ────────────────────────────────────────────────────────────
-// Mirrors `auth.users` from Supabase Auth (we keep our own row keyed by the
-// same UUID so we can attach extra fields and join cleanly).
+// Backed by NextAuth v5 with the Prisma adapter (Google OAuth + Resend
+// email magic links). Fields below `image` are required by NextAuth;
+// `locale`, `deletedAt`, and the relations above are app-specific.
 model User {
-  id        String    @id @db.Uuid
-  email     String    @unique
-  locale    String    @default("en") // "en" | "it"
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt      @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email         String    @unique
+  name          String?
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+  locale        String    @default("en") // "en" | "it"
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt      @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
 
-  sessions          Session[]
+  sessions           Session[]
   emailSubscriptions EmailSubscription[]
+  accounts           Account[]
 
   @@map("users")
   @@index([email])
+}
+
+// ─── NextAuth: Account ────────────────────────────────────────────────
+// One row per OAuth provider linked to a user (Google, etc.). Field
+// names below match exactly what the NextAuth Prisma adapter expects;
+// the snake_case names (refresh_token, access_token, ...) are the
+// OAuth-spec wire names and the adapter reads them as-is.
+model Account {
+  id                String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String  @map("user_id") @db.Uuid
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+  @@index([userId])
+}
+
+// ─── NextAuth: VerificationToken ──────────────────────────────────────
+// Used by the Resend email-magic-link flow. Tokens are short-lived (24h
+// default) and consumed on first click. No user FK; the adapter
+// resolves the user by email after token verification.
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
 }
 
 // ─── Sessions ─────────────────────────────────────────────────────────
