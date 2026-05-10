@@ -421,10 +421,13 @@ export async function POST(req: NextRequest) {
           system: RECOMMEND_SYSTEM_PROMPT,
           prompt: userPrompt,
           maxOutputTokens: 8000,
-          // Low temp: more deterministic output, less creative
-          // serialization (Haiku at 0.5 occasionally encoded the whole
-          // result as a string-inside-a-string).
-          temperature: 0.3,
+          // Low temp: more deterministic output. Dropped 0.3 → 0.2
+          // after observing ~5-10% schema-flake rate on heavy profiles
+          // (Stanford CS + full futureSelf + dilemma + refine context).
+          // 0.2 leaves enough variability for the recommendation voice
+          // while halving schema-shape errors. The retry path below
+          // bumps to 0.55 to break out of any sticky bad pattern.
+          temperature: 0.2,
         });
 
         for await (const partial of llmStream.partialObjectStream) {

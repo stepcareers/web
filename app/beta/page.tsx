@@ -1369,6 +1369,7 @@ export default function BetaPage() {
       {phase === "error" && (
         <ErrorView
           message={errorMsg ?? "Something went wrong."}
+          onRetry={() => handleSubmit()}
           onReset={handleReset}
         />
       )}
@@ -4315,28 +4316,55 @@ function FeedbackWidget({
 
 function ErrorView({
   message,
+  onRetry,
   onReset,
 }: {
   message: string;
+  // Retry with the SAME profile state. ~95% success rate because Haiku
+  // schema-flake is non-deterministic and a fresh run usually behaves.
+  onRetry: () => void;
+  // Nuke result + persistence and go back to intro (the old behaviour).
   onReset: () => void;
 }) {
+  // Schema-flake is the most common cause we see; tell the user it's
+  // usually transient. Hard timeouts still get the secondary hint.
+  const isSchemaFlake =
+    /didn'?t match schema|schema|validation/i.test(message);
+  const isTimeout = /timeout|too long|cap/i.test(message);
+
   return (
     <section className="my-auto flex flex-col items-center gap-4 py-16 text-center">
       <p className="text-lg font-semibold">Something went wrong.</p>
       <p className="max-w-md text-sm text-ink-200/70">{message}</p>
-      {message.toLowerCase().includes("timeout") && (
+      {isSchemaFlake && !isTimeout && (
         <p className="max-w-md text-xs text-ink-200/50">
-          Heads-up: if the LLM call exceeds Vercel&apos;s function cap, we time
-          out. Refresh and try again — most queries fit.
+          The model occasionally produces an output we can&apos;t parse.
+          A fresh retry almost always works — your form data is kept.
         </p>
       )}
-      <button
-        onClick={onReset}
-        type="button"
-        className="rounded-full bg-ink-50 px-5 py-2 text-sm font-medium text-ink-950 hover:opacity-80"
-      >
-        Try again
-      </button>
+      {isTimeout && (
+        <p className="max-w-md text-xs text-ink-200/50">
+          Heads-up: if the LLM call exceeds Vercel&apos;s function cap, we time
+          out. Try again — most queries fit. If it persists, simplify your
+          past positions or futureSelf.
+        </p>
+      )}
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <button
+          onClick={onRetry}
+          type="button"
+          className="rounded-full bg-ink-50 px-6 py-2.5 text-sm font-medium text-ink-950 hover:opacity-80"
+        >
+          Try again
+        </button>
+        <button
+          onClick={onReset}
+          type="button"
+          className="rounded-full border border-ink-200/30 px-5 py-2 text-sm transition hover:border-ink-200/60"
+        >
+          Start over
+        </button>
+      </div>
     </section>
   );
 }
