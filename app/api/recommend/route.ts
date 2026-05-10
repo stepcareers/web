@@ -16,6 +16,7 @@ import {
   RECOMMEND_PROMPT_VERSION,
   RECOMMEND_SYSTEM_PROMPT,
 } from "@/lib/ai/prompts/recommend";
+import { verifyTurnstile, getClientIp } from "@/lib/turnstile";
 
 /**
  * POST /api/recommend
@@ -310,6 +311,33 @@ export async function POST(req: NextRequest) {
     return Response.json(
       { error: "invalid_json", message: "Body must be valid JSON" },
       { status: 400 },
+    );
+  }
+
+  // Extract Turnstile token (kept outside the profile schema to avoid
+  // polluting it). Verified BEFORE we run the expensive embed + LLM
+  // chain, so a bot floods us with at most one Turnstile-verify call,
+  // not a $0.05 LLM call.
+  const turnstileToken =
+    raw && typeof raw === "object" && "turnstileToken" in raw
+      ? (raw as { turnstileToken?: unknown }).turnstileToken
+      : undefined;
+  const turnstile = await verifyTurnstile(
+    typeof turnstileToken === "string" ? turnstileToken : null,
+    getClientIp(req),
+  );
+  if (!turnstile.ok) {
+    console.warn(
+      "[/api/recommend] turnstile rejected:",
+      turnstile.reason,
+      turnstile.errors,
+    );
+    return Response.json(
+      {
+        error: "bot_check_failed",
+        message: "Couldn't verify you're human. Refresh the page and try again.",
+      },
+      { status: 403 },
     );
   }
 

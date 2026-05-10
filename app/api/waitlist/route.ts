@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { Pool } from "pg";
 import { z } from "zod";
+import { verifyTurnstile, getClientIp } from "@/lib/turnstile";
 
 /**
  * POST /api/waitlist
@@ -36,6 +37,10 @@ const BodySchema = z.object({
   // not. Cap at 1000 — higher values are almost always typos and pollute
   // the cohort analysis.
   willingToPayEur: z.coerce.number().int().min(0).max(1000).optional(),
+  // Optional in schema, validated below — anonymous signup forms send
+  // a Turnstile token; server-side flows (e.g. tests) can omit it
+  // and will be rejected unless TURNSTILE_SECRET_KEY is unset.
+  turnstileToken: z.string().optional(),
 });
 
 declare global {
@@ -87,6 +92,28 @@ export async function POST(req: NextRequest) {
     );
   }
   const body = parseResult.data;
+
+  // Turnstile gate — protects the email-collection endpoint from bots
+  // scraping/spamming. No-ops when TURNSTILE_SECRET_KEY isn't set
+  // (dev) so local development isn't blocked.
+  const turnstile = await verifyTurnstile(
+    body.turnstileToken,
+    getClientIp(req),
+  );
+  if (!turnstile.ok) {
+    console.warn(
+      "[/api/waitlist] turnstile rejected:",
+      turnstile.reason,
+      turnstile.errors,
+    );
+    return Response.json(
+      {
+        error: "bot_check_failed",
+        message: "Couldn't verify you're human. Refresh and try again.",
+      },
+      { status: 403 },
+    );
+  }
 
   try {
     const pool = getPool();

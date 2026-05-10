@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { TurnstileWidget } from "@/components/turnstile";
 
 /**
  * Step — public landing page.
@@ -56,6 +57,7 @@ export default function LandingPage() {
     "idle",
   );
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   async function handleWaitlistSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -74,6 +76,7 @@ export default function LandingPage() {
           email: email.trim(),
           mostInterestedIn: interest,
           notes: notes.trim() || undefined,
+          turnstileToken: turnstileToken ?? undefined,
         }),
       });
       if (!res.ok) {
@@ -345,6 +348,10 @@ export default function LandingPage() {
             {errorMsg && status === "error" && (
               <p className="text-sm text-red-600 dark:text-red-400">{errorMsg}</p>
             )}
+
+            {/* Cloudflare Turnstile bot check — invisible managed mode.
+                Renders nothing if the env site key is unset. */}
+            <TurnstileWidget onToken={setTurnstileToken} />
 
             <button
               type="submit"

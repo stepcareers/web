@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import posthog from "posthog-js";
+import { TurnstileWidget } from "@/components/turnstile";
 
 // Thin wrapper so capture call sites stay short and we have a single place
 // to short-circuit if PostHog isn't initialized (key missing in env).
@@ -528,6 +529,12 @@ export default function BetaPage() {
   const [retrievedPaths, setRetrievedPaths] = useState<RetrievedPathSummary[] | null>(null);
   const [partialResult, setPartialResult] = useState<PartialResult | null>(null);
 
+  // Cloudflare Turnstile bot-check token. Refreshed on each successful
+  // challenge; consumed once by the server. When NEXT_PUBLIC_TURNSTILE_SITE_KEY
+  // isn't set the widget no-ops and this stays null — the server-side verifier
+  // also no-ops in that case so dev still works.
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+
   // Tick elapsed seconds while loading or streaming.
   useEffect(() => {
     if (phase !== "loading" && phase !== "streaming") return;
@@ -838,6 +845,9 @@ export default function BetaPage() {
       dilemma: dilemma.trim(),
       additionalContext: additionalContextOverride?.trim() || undefined,
       locale: "en" as const,
+      // Bot-check token. The server fails closed when TURNSTILE_SECRET_KEY is set
+      // and this is missing/invalid; falls open in dev when no secret is configured.
+      turnstileToken: turnstileToken ?? undefined,
     };
 
     // Snapshot the profile for the result view (timeline NOW → vision,
@@ -1309,6 +1319,18 @@ export default function BetaPage() {
               dilemma={dilemma}
               setDilemma={setDilemma}
             />
+          )}
+
+          {/* Bot-check widget. Only mounts on Step 3 (the only step that posts).
+              Renders nothing in dev (no NEXT_PUBLIC_TURNSTILE_SITE_KEY). */}
+          {step === 3 && (
+            <div className="mt-8 flex justify-end">
+              <TurnstileWidget
+                onToken={setTurnstileToken}
+                onExpired={() => setTurnstileToken(null)}
+                onError={() => setTurnstileToken(null)}
+              />
+            </div>
           )}
 
           <div className="mt-10 flex items-center justify-between gap-3">
