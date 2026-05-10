@@ -414,9 +414,46 @@ function writePremiumUnlocked(v: boolean) {
   }
 }
 
+/**
+ * Snapshot of the form input that produced the result. Stored alongside
+ * the result so a user who reloads (or comes back from /account, /login)
+ * can refine the plan via the Q&A or free-text box without losing the
+ * input — the refine flow re-submits the SAME profile + new
+ * additionalContext, so without the input, the payload would be
+ * empty/default and trip server-side validation.
+ *
+ * Older persisted entries lack `input` — we hydrate the result without
+ * restoring form state in that case, and the refine box silently
+ * doesn't work until the user generates a new plan. New format moving
+ * forward includes `input` always.
+ */
+interface PersistedInput {
+  stage: Stage;
+  fieldVal: FieldEnum;
+  skills: string[];
+  interests: string[];
+  studies: Study[];
+  pastPositions: PastPosition[];
+  languages: LanguageRow[];
+  noIncomeYet: boolean;
+  salaryCurrent: string;
+  salaryMin: string;
+  salaryNotPriority: boolean;
+  salaryCurrency: Currency;
+  locationPreferred: string;
+  openToRemote: boolean;
+  openToRelocation: boolean;
+  priorityFirst: PriorityValue;
+  prioritySecond: PriorityValue;
+  priorityThird: PriorityValue;
+  futureSelf: string;
+  dilemma: string;
+}
+
 interface PersistedResult {
   data: ApiResponse;
   profile: ProfileSnapshot | null;
+  input?: PersistedInput; // optional for backward compat with older entries
   savedAt: number;
 }
 
@@ -503,6 +540,13 @@ export default function BetaPage() {
   // On mount, restore last result from localStorage if present. Lets users
   // refresh / close-and-reopen without losing their plan. We trust the
   // stored shape — if it's stale or malformed, we silently drop it.
+  //
+  // ALSO restore the form input (skills, interests, futureSelf, ...) if
+  // the stored shape includes it — without this, refine (Q&A / free-text)
+  // would re-submit empty form state and fail server-side validation
+  // ("validation_failed"). Older entries without `input` still work for
+  // viewing the plan; refine just won't function until they generate
+  // a new one.
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -512,6 +556,33 @@ export default function BetaPage() {
       if (!parsed?.data?.result?.recommendations?.length) return;
       setResult(parsed.data);
       setProfileSnapshot(parsed.profile);
+      if (parsed.input) {
+        const i = parsed.input;
+        setStage(i.stage);
+        setFieldVal(i.fieldVal);
+        setSkills(i.skills ?? []);
+        setInterests(i.interests ?? []);
+        if (Array.isArray(i.studies) && i.studies.length > 0) {
+          setStudies(i.studies);
+        }
+        setPastPositions(Array.isArray(i.pastPositions) ? i.pastPositions : []);
+        if (Array.isArray(i.languages) && i.languages.length > 0) {
+          setLanguages(i.languages);
+        }
+        setNoIncomeYet(!!i.noIncomeYet);
+        setSalaryCurrent(i.salaryCurrent ?? "");
+        setSalaryMin(i.salaryMin ?? "");
+        setSalaryNotPriority(!!i.salaryNotPriority);
+        setSalaryCurrency(i.salaryCurrency ?? "EUR");
+        setLocationPreferred(i.locationPreferred ?? "");
+        setOpenToRemote(!!i.openToRemote);
+        setOpenToRelocation(!!i.openToRelocation);
+        if (i.priorityFirst) setPriorityFirst(i.priorityFirst);
+        if (i.prioritySecond) setPrioritySecond(i.prioritySecond);
+        if (i.priorityThird) setPriorityThird(i.priorityThird);
+        setFutureSelf(i.futureSelf ?? "");
+        setDilemma(i.dilemma ?? "");
+      }
       setPhase("result");
     } catch {
       // Corrupt entry — clear it so we don't keep tripping on it.
@@ -713,6 +784,18 @@ export default function BetaPage() {
       const err = validateStep3();
       if (err) {
         setErrorMsg(err);
+        return;
+      }
+    } else {
+      // Refine path: state values must be intact. If skills are empty
+      // it means we hydrated from an OLD persisted entry (pre-`input`
+      // field) and the form values were never restored. Tell the user
+      // to start over instead of submitting an invalid payload that
+      // would fail Zod validation server-side with a cryptic error.
+      if (skills.length === 0 || interests.length === 0 || !futureSelf.trim() || !dilemma.trim()) {
+        setErrorMsg(
+          "Your form data was lost when the page reloaded. Click 'Start over' below and re-enter your profile to enable refine.",
+        );
         return;
       }
     }
@@ -931,6 +1014,9 @@ export default function BetaPage() {
 
       // Persist so the user can refresh / close-and-reopen without losing
       // their plan. Best-effort — quotas / private mode silently no-op.
+      // We persist BOTH the result AND a full snapshot of the form
+      // input that produced it, so refine (Q&A or free-text) keeps
+      // working after a reload — refine reuses the input as-is.
       try {
         const persisted: PersistedResult = {
           data: finalData,
@@ -942,6 +1028,30 @@ export default function BetaPage() {
             currency: salaryCurrency,
             futureSelf: futureSelf.trim() || undefined,
             locationPreferred: locationPreferred.trim() || undefined,
+            dilemma: dilemma.trim() || undefined,
+            locale: "en",
+          },
+          input: {
+            stage,
+            fieldVal,
+            skills,
+            interests,
+            studies,
+            pastPositions,
+            languages,
+            noIncomeYet,
+            salaryCurrent,
+            salaryMin,
+            salaryNotPriority,
+            salaryCurrency,
+            locationPreferred,
+            openToRemote,
+            openToRelocation,
+            priorityFirst,
+            prioritySecond,
+            priorityThird,
+            futureSelf,
+            dilemma,
           },
           savedAt: Date.now(),
         };
