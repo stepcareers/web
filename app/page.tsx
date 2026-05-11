@@ -212,7 +212,7 @@ export default function LandingPage() {
         <ul className="flex flex-col gap-3 text-base leading-relaxed">
           <Bullet>
             <strong>3–5 ranked next moves</strong> for your specific dilemma,
-            backed by <strong>8,500+ curated career paths across 26
+            backed by <strong>8,500+ curated career paths across 70+
             countries</strong> — US, UK, EU, India, Canada, Australia,
             Singapore, Hong Kong, Japan, Korea, Brazil, MENA, sub-Saharan
             Africa, and more.

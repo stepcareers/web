@@ -67,7 +67,7 @@ export default function HowItWorksPage() {
           <p className="max-w-2xl text-lg leading-relaxed text-ink-200/90 dark:text-ink-200/70">
             Most career advice is either generic blog posts or one-off
             mentor calls. Step is something else: a recommendation
-            engine grounded in 8,500+ curated career paths across 26
+            engine grounded in 8,500+ curated career paths across 70+
             countries, with honest evidence counts instead of made-up
             probabilities.
           </p>
