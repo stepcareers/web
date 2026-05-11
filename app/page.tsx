@@ -115,7 +115,7 @@ export default function LandingPage() {
                 applicationCategory: "BusinessApplication",
                 operatingSystem: "Web",
                 description:
-                  "AI career planner. Get 3–5 ranked next-step recommendations grounded in 200+ curated career paths. Includes 90-day actions, 12-month outcome, 5-year vision bridge.",
+                  "AI career planner. Get 3–5 ranked next-step recommendations grounded in 10,000+ curated career paths across 26 countries. Includes 90-day actions, 12-month outcome, 5-year vision bridge.",
                 offers: {
                   "@type": "Offer",
                   price: "0",
@@ -212,7 +212,10 @@ export default function LandingPage() {
         <ul className="flex flex-col gap-3 text-base leading-relaxed">
           <Bullet>
             <strong>3–5 ranked next moves</strong> for your specific dilemma,
-            backed by curated career paths from Italy, UK, and EU.
+            backed by <strong>10,000+ curated career paths across 26
+            countries</strong> — US, UK, EU, India, Canada, Australia,
+            Singapore, Hong Kong, Japan, Korea, Brazil, MENA, sub-Saharan
+            Africa, and more.
           </Bullet>
           <Bullet>
             <strong>Concrete 90-day actions</strong> — verb-led, time-bounded,

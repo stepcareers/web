@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "How it works",
   description:
-    "How Step turns career uncertainty into ranked next steps: 200+ curated career paths, vector embeddings, and Claude-grounded recommendations with honest evidence counts. No invented probabilities.",
+    "How Step turns career uncertainty into ranked next steps: 10,000+ curated career paths, vector embeddings, and Claude-grounded recommendations with honest evidence counts. No invented probabilities.",
   keywords: [
     "how Step works",
     "AI career advice methodology",
@@ -28,7 +28,7 @@ export default function HowItWorksPage() {
             "@type": "TechArticle",
             headline: "How Step works — under the hood",
             description:
-              "Step's career recommendation engine: 200+ curated career paths, vector embedding retrieval, and Claude-grounded advice with honest evidence counts.",
+              "Step's career recommendation engine: 10,000+ curated career paths, vector embedding retrieval, and Claude-grounded advice with honest evidence counts.",
             author: { "@type": "Organization", name: "Step" },
             publisher: {
               "@type": "Organization",
@@ -67,8 +67,9 @@ export default function HowItWorksPage() {
           <p className="max-w-2xl text-lg leading-relaxed text-ink-200/90 dark:text-ink-200/70">
             Most career advice is either generic blog posts or one-off
             mentor calls. Step is something else: a recommendation
-            engine grounded in 200+ curated career paths, with honest
-            evidence counts instead of made-up probabilities.
+            engine grounded in 10,000+ curated career paths across 26
+            countries, with honest evidence counts instead of made-up
+            probabilities.
           </p>
         </section>
 
@@ -78,19 +79,25 @@ export default function HowItWorksPage() {
           </h2>
           <p className="leading-relaxed text-ink-200/90">
             We&apos;ve curated{" "}
-            <strong className="text-ink-50">200+ career paths</strong> —
-            real anonymized stories of how people moved from one role to
-            another. Each path has the starting state (stage, field,
+            <strong className="text-ink-50">10,000+ career paths</strong>{" "}
+            — real anonymized stories of how people moved from one role
+            to another. Each path has the starting state (stage, field,
             role), the transition type (vertical promo, industry pivot,
             geo move...), the next role with timeframe, the 4–5 concrete
             actions that drove the transition, and the 24-month outcome.
           </p>
           <p className="leading-relaxed text-ink-200/90">
-            The dataset spans Italy, UK, EU, and US locales. It covers
-            elite tracks (FAANG SWE, MBB consulting, IB analyst, VC
-            associate) and underrepresented ones (NHS doctor pivots,
-            italian boutique consulting, bootcamp grads, dropout
-            founders). Every path has a confidence label —{" "}
+            The dataset spans 26 countries — US, UK, Italy, Germany,
+            France, Spain, the Nordics, India, Canada, Australia,
+            Singapore, Hong Kong, Japan, Korea, Brazil, Mexico, the
+            broader LatAm, the UAE, Saudi Arabia and the wider MENA, plus
+            sub-Saharan Africa and CIS. It covers elite tracks (FAANG
+            SWE, MBB consulting, IB analyst, VC associate, Magic Circle
+            law, Bain Capital PE) and underrepresented ones (NHS doctor
+            pivots, Italian boutique consulting, bootcamp grads, dropout
+            founders, returnship parents, military veterans, late-30s
+            career switchers, neurodivergent ICs, FGLI students). Every
+            path has a confidence label —{" "}
             <code className="rounded bg-ink-200/10 px-1.5 py-0.5 text-sm">
               high
             </code>{" "}

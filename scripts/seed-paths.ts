@@ -1,27 +1,48 @@
 import "dotenv/config";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "csv-parse/sync";
 import { z } from "zod";
 import { Pool } from "pg";
 
 /**
- * Seed the `paths` table from `dataset/seed_paths.csv`.
+ * Seed the `paths` table from every `seed_paths*.csv` file in `dataset/`.
  *
  * Uses raw node-postgres (no Prisma client) so the script works on any
  * architecture, including Windows ARM where the Prisma query engine
  * binary isn't available.
  *
  * Idempotent: re-running upserts on `path_id`. Run: `npm run db:seed`.
+ *
+ * To load only ONE specific file, set `SEED_CSV_PATH` to its absolute path.
  */
 
-const CSV_PATH = process.env.SEED_CSV_PATH
-  ? resolve(process.env.SEED_CSV_PATH)
-  : resolve(process.cwd(), "..", "dataset", "seed_paths.csv");
+const DATASET_DIR = resolve(process.cwd(), "..", "dataset");
+
+function discoverCsvPaths(): string[] {
+  // Single-file override (kept for backwards compat / debugging).
+  if (process.env.SEED_CSV_PATH) {
+    return [resolve(process.env.SEED_CSV_PATH)];
+  }
+  // Glob all seed CSVs. Sort for deterministic ordering — load order
+  // doesn't matter functionally (all upserts on path_id), but stable
+  // logs make debugging easier.
+  return readdirSync(DATASET_DIR)
+    .filter((f) => f.startsWith("seed_paths") && f.endsWith(".csv"))
+    .sort()
+    .map((f) => resolve(DATASET_DIR, f));
+}
 
 const rawRowSchema = z.object({
   path_id: z.string().min(1),
-  locale: z.enum(["it", "uk", "eu", "us"]),
+  // Open enum: accept any 2-letter lowercase ISO 3166-1 alpha-2 code, plus
+  // our regional aggregates "uk" and "eu". Validating exact membership got
+  // tedious as the dataset expanded across LatAm, Africa, CIS, and APAC;
+  // the DB column is plain TEXT, so we trust the writer and just enforce
+  // shape.
+  locale: z
+    .string()
+    .regex(/^[a-z]{2}$/, "locale must be a 2-letter lowercase code"),
   starting_stage: z.enum([
     "university_student",
     "recent_grad",
@@ -58,6 +79,194 @@ function splitList(raw: string | undefined, sep: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Normalize enum-ish columns to the canonical values the schema expects.
+ *
+ * Different writers (humans + LLM agents) coined parallel vocabularies
+ * over time — "mid_career", "pivot_industry", "return_to_work", etc. —
+ * that semantically map to the canonical enum but would otherwise be
+ * rejected by Zod. We rewrite them here so the data lands cleanly without
+ * losing rows.
+ */
+const STAGE_NORMALIZATION: Record<string, string> = {
+  mid_career: "3_7y",
+  "mid-career": "3_7y",
+  midcareer: "3_7y",
+  early_career: "0_3y",
+  "early-career": "0_3y",
+  earlycareer: "0_3y",
+  career_break: "3_7y",
+  "career-break": "3_7y",
+  returner: "3_7y",
+  senior_career: "7_plus",
+  "senior-career": "7_plus",
+  late_career: "7_plus",
+  "late-career": "7_plus",
+  experienced: "7_plus",
+  senior: "7_plus",
+  student: "university_student",
+  undergrad: "university_student",
+  undergraduate: "university_student",
+  "0-3y": "0_3y",
+  "3-7y": "3_7y",
+  "7+": "7_plus",
+  "7_plus_y": "7_plus",
+  // PhD/postdoc variants — finishing a PhD ≈ recent_grad for retrieval
+  // purposes; the field already encodes "PhD" in starting_role + tags.
+  phd_late_stage: "recent_grad",
+  "phd-late-stage": "recent_grad",
+  phd_track: "recent_grad",
+  "phd-track": "recent_grad",
+  phd_candidate: "recent_grad",
+  "phd-candidate": "recent_grad",
+  phd_student: "recent_grad",
+  "phd-student": "recent_grad",
+  phd: "recent_grad",
+  postdoc: "0_3y",
+  "post-doc": "0_3y",
+  post_doc: "0_3y",
+  postdoctoral: "0_3y",
+  doctoral: "recent_grad",
+  // Other one-offs the agents introduced
+  grad_school: "university_student",
+  "grad-school": "university_student",
+  grad: "recent_grad",
+  graduate: "recent_grad",
+  new_grad: "recent_grad",
+  "new-grad": "recent_grad",
+  fresh_grad: "recent_grad",
+  "fresh-grad": "recent_grad",
+  recent_graduate: "recent_grad",
+  "recent-graduate": "recent_grad",
+  // Typos and creative variants seen in the wild
+  early_country: "0_3y", // typo for early_career
+  established: "7_plus",
+  established_career: "7_plus",
+  career_change: "3_7y", // agents sometimes put transition concept in stage column
+  "career-change": "3_7y",
+  career_changer: "3_7y",
+  pivoter: "3_7y",
+  late_stage: "7_plus",
+  veteran: "7_plus",
+  tenured: "7_plus",
+  emerging: "0_3y",
+  growing: "0_3y",
+  intern: "university_student",
+  internship: "university_student",
+  entry_level: "0_3y",
+  "entry-level": "0_3y",
+  junior: "0_3y",
+  mid_level: "3_7y",
+  "mid-level": "3_7y",
+  senior_level: "7_plus",
+  "senior-level": "7_plus",
+  senior_ic: "7_plus",
+  "senior-ic": "7_plus",
+  staff: "7_plus",
+  principal: "7_plus",
+  director: "7_plus",
+  vp: "7_plus",
+  manager: "3_7y",
+  lead: "3_7y",
+  associate: "0_3y",
+};
+const TRANSITION_NORMALIZATION: Record<string, string> = {
+  pivot_industry: "industry_pivot",
+  "pivot-industry": "industry_pivot",
+  "industry-pivot": "industry_pivot",
+  industrypivot: "industry_pivot",
+  field_switch: "industry_pivot",
+  "field-switch": "industry_pivot",
+  exit_to_industry: "industry_pivot",
+  "exit-to-industry": "industry_pivot",
+  exit: "industry_pivot",
+  industry_exit: "industry_pivot",
+  vertical_promotion: "vertical_promo",
+  "vertical-promotion": "vertical_promo",
+  pivot: "industry_pivot",
+  horizontal_pivot: "lateral_role",
+  "horizontal-pivot": "lateral_role",
+  horizontal: "lateral_role",
+  role_change: "lateral_role",
+  "role-change": "lateral_role",
+  job_change: "lateral_role",
+  "job-change": "lateral_role",
+  career_change: "industry_pivot",
+  "career-change": "industry_pivot",
+  career_pivot: "industry_pivot",
+  "career-pivot": "industry_pivot",
+  continued_education: "education",
+  "continued-education": "education",
+  further_education: "education",
+  "further-education": "education",
+  postgrad: "education",
+  geographic_relocation: "geo_move",
+  "geographic-relocation": "geo_move",
+  relocate: "geo_move",
+  cross_border: "geo_move",
+  "cross-border": "geo_move",
+  international_move: "geo_move",
+  "international-move": "geo_move",
+  geo_change: "geo_move",
+  "geo-change": "geo_move",
+  geographic_change: "geo_move",
+  "geographic-change": "geo_move",
+  lateral_move: "lateral_role",
+  "lateral-move": "lateral_role",
+  cross_functional: "lateral_role",
+  "cross-functional": "lateral_role",
+  function_change: "lateral_role",
+  "function-change": "lateral_role",
+  pivot_role: "lateral_role",
+  "pivot-role": "lateral_role",
+  role_pivot: "lateral_role",
+  "role-pivot": "lateral_role",
+  return_to_work: "lateral_role",
+  "return-to-work": "lateral_role",
+  returnship: "lateral_role",
+  return: "lateral_role",
+  promotion: "vertical_promo",
+  promo: "vertical_promo",
+  "vertical-promo": "vertical_promo",
+  vertical: "vertical_promo",
+  "lateral-role": "lateral_role",
+  lateral: "lateral_role",
+  "founder-track": "founder",
+  founding: "founder",
+  entrepreneurship: "founder",
+  startup: "founder",
+  geographic_move: "geo_move",
+  "geographic-move": "geo_move",
+  "geo-move": "geo_move",
+  relocation: "geo_move",
+  immigration: "geo_move",
+  schooling: "education",
+  degree: "education",
+  mba: "education",
+  phd: "education",
+};
+
+function normalizeEnum(
+  raw: string | undefined,
+  map: Record<string, string>,
+): string | undefined {
+  if (!raw) return raw;
+  const key = raw.toLowerCase().trim();
+  return map[key] ?? raw;
+}
+
+function normalizeRow(raw: Record<string, string>): Record<string, string> {
+  return {
+    ...raw,
+    starting_stage:
+      normalizeEnum(raw.starting_stage, STAGE_NORMALIZATION) ??
+      raw.starting_stage,
+    transition_type:
+      normalizeEnum(raw.transition_type, TRANSITION_NORMALIZATION) ??
+      raw.transition_type,
+  };
+}
+
 function emptyToNull(s: string | undefined): string | null {
   const trimmed = s?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : null;
@@ -90,22 +299,84 @@ ON CONFLICT (path_id) DO UPDATE SET
 `;
 
 async function main() {
-  console.log(`📂 Reading ${CSV_PATH}`);
-  const csv = readFileSync(CSV_PATH, "utf-8");
-  const rows = parse(csv, {
-    columns: true,
-    skip_empty_lines: true,
-    trim: true,
-  }) as Record<string, string>[];
+  const csvPaths = discoverCsvPaths();
+  console.log(`📂 Discovered ${csvPaths.length} CSV file(s):`);
+  for (const p of csvPaths) console.log(`   - ${p}`);
 
-  console.log(`📋 Parsed ${rows.length} row(s) from CSV.\n`);
+  // Concatenate all rows across files. Track source file per row so we
+  // can flag which file a bad row came from. Errors in one file (e.g.
+  // unquoted URL with commas) shouldn't take down the whole run — we log
+  // the problem with file + line and keep going.
+  const allRows: Array<{ raw: Record<string, string>; source: string }> = [];
+  const fileErrors: Array<{ file: string; error: string }> = [];
+  for (const p of csvPaths) {
+    const fileName = p.split(/[\\/]/).pop() ?? p;
+    try {
+      const csv = readFileSync(p, "utf-8");
+      const rows = parse(csv, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      }) as Record<string, string>[];
+      for (const r of rows) allRows.push({ raw: r, source: p });
+      console.log(`   ✓ ${fileName}: ${rows.length} row(s)`);
+    } catch (err) {
+      const e = err as { code?: string; lines?: number; message?: string };
+      const lineHint = e.lines ? ` (first bad line ~${e.lines})` : "";
+      const msg = `${e.code ?? "ParseError"}${lineHint}: ${e.message ?? String(err)}`;
+      console.error(`   ❌ ${fileName}: ${msg}`);
+      fileErrors.push({ file: fileName, error: msg });
+    }
+  }
+  console.log(`\n📋 Total rows successfully parsed across files: ${allRows.length}`);
+  if (fileErrors.length > 0) {
+    console.warn(
+      `\n⚠️  ${fileErrors.length} file(s) had parse errors and were skipped:`,
+    );
+    for (const fe of fileErrors) console.warn(`   - ${fe.file}: ${fe.error}`);
+    console.warn(
+      "   Likely cause: a field with commas (e.g. URL like Glassdoor) is not double-quoted.\n",
+    );
+  } else {
+    console.log("");
+  }
+
+  // Cross-file slug collision detection. The DB upsert would silently
+  // overwrite duplicates; we want to surface them so we can dedup the
+  // CSVs intentionally.
+  const slugCounts = new Map<string, string[]>();
+  for (const { raw, source } of allRows) {
+    const slug = raw.path_id;
+    if (!slug) continue;
+    const list = slugCounts.get(slug) ?? [];
+    list.push(source);
+    slugCounts.set(slug, list);
+  }
+  const dupes = Array.from(slugCounts.entries()).filter(
+    ([, sources]) => sources.length > 1,
+  );
+  if (dupes.length > 0) {
+    console.warn(`⚠️  ${dupes.length} duplicate path_id(s) across files:`);
+    for (const [slug, sources] of dupes.slice(0, 20)) {
+      console.warn(
+        `   ${slug} appears in: ${sources.map((s) => s.split(/[\\/]/).pop()).join(", ")}`,
+      );
+    }
+    if (dupes.length > 20) console.warn(`   …and ${dupes.length - 20} more`);
+    console.warn(
+      "   Last write wins per path_id. Resolve by deleting the duplicate row in one of the files.\n",
+    );
+  }
 
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   let upserted = 0;
   let failed = 0;
 
-  for (const raw of rows) {
+  for (const { raw: rawOriginal } of allRows) {
+    // Rewrite enum synonyms ("mid_career" → "3_7y", "pivot_industry" →
+    // "industry_pivot", etc.) before Zod sees the row.
+    const raw = normalizeRow(rawOriginal);
     const result = rawRowSchema.safeParse(raw);
     if (!result.success) {
       console.error(
