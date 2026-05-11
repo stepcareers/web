@@ -1442,15 +1442,17 @@ function ProgressBar({ step }: { step: 1 | 2 | 3 }) {
           <div
             key={i}
             className={`h-1 flex-1 rounded-full transition ${
-              i <= step
-                ? "bg-ink-50"
-                : "bg-ink-200/20"
+              i < step
+                ? "bg-amber-400/70"
+                : i === step
+                  ? "bg-amber-400"
+                  : "bg-ink-200/20"
             }`}
           />
         ))}
       </div>
       <p className="mt-2 text-xs uppercase tracking-wider text-ink-200/60">
-        Step {step} of 3 · {labels[step - 1]}
+        Step {step} of 3 · <span className="text-amber-300/90">{labels[step - 1]}</span>
       </p>
     </div>
   );
@@ -2755,7 +2757,7 @@ function Milestone({
       <span
         className={`relative z-10 mt-1 h-2.5 w-2.5 shrink-0 rounded-full sm:mt-0 ${
           filled
-            ? "bg-ink-50 ring-4 ring-ink-50/15"
+            ? "bg-amber-400 ring-4 ring-amber-400/20"
             : "border-2 border-ink-200/40 bg-ink-950"
         }`}
       />

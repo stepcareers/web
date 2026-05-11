@@ -420,7 +420,7 @@ function JourneyStep({
         <span
           className={`h-2.5 w-2.5 rounded-full ${
             filled
-              ? "bg-ink-50"
+              ? "bg-amber-400 shadow-[0_0_0_3px_rgba(245,158,11,0.18)]"
               : "border-2 border-ink-200/40 bg-transparent"
           }`}
         />
