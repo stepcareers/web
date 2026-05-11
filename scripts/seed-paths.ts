@@ -109,6 +109,23 @@ const STAGE_NORMALIZATION: Record<string, string> = {
   undergraduate: "university_student",
   "0-3y": "0_3y",
   "3-7y": "3_7y",
+  "1_3y": "0_3y",
+  "1-3y": "0_3y",
+  "4_7y": "3_7y",
+  "4-7y": "3_7y",
+  "8_15y": "7_plus",
+  "8-15y": "7_plus",
+  "8_plus": "7_plus",
+  "10_plus": "7_plus",
+  "15_plus": "7_plus",
+  "4_6y": "3_7y",
+  "4-6y": "3_7y",
+  "5_7y": "3_7y",
+  "5-7y": "3_7y",
+  "6_10y": "7_plus",
+  "6-10y": "7_plus",
+  "7_10y": "7_plus",
+  "7-10y": "7_plus",
   "7+": "7_plus",
   "7_plus_y": "7_plus",
   // PhD/postdoc variants — finishing a PhD ≈ recent_grad for retrieval
@@ -183,6 +200,28 @@ const TRANSITION_NORMALIZATION: Record<string, string> = {
   industry_exit: "industry_pivot",
   vertical_promotion: "vertical_promo",
   "vertical-promotion": "vertical_promo",
+  same_field_promotion: "vertical_promo",
+  "same-field-promotion": "vertical_promo",
+  internal_promotion: "vertical_promo",
+  "internal-promotion": "vertical_promo",
+  lateral_promotion: "vertical_promo",
+  "lateral-promotion": "vertical_promo",
+  promo_track: "vertical_promo",
+  "promo-track": "vertical_promo",
+  pivot_career: "industry_pivot",
+  "pivot-career": "industry_pivot",
+  exit_to_startup: "founder",
+  "exit-to-startup": "founder",
+  exit_to_founder: "founder",
+  "exit-to-founder": "founder",
+  accelerator_to_funding: "founder",
+  "accelerator-to-funding": "founder",
+  yc_to_seed: "founder",
+  startup_founding: "founder",
+  lateral_company: "lateral_role",
+  "lateral-company": "lateral_role",
+  company_switch: "lateral_role",
+  "company-switch": "lateral_role",
   pivot: "industry_pivot",
   horizontal_pivot: "lateral_role",
   "horizontal-pivot": "lateral_role",
@@ -209,6 +248,11 @@ const TRANSITION_NORMALIZATION: Record<string, string> = {
   "international-move": "geo_move",
   geo_change: "geo_move",
   "geo-change": "geo_move",
+  geo_relocation: "geo_move",
+  "geo-relocation": "geo_move",
+  left_field: "industry_pivot",
+  "left-field": "industry_pivot",
+  field_left: "industry_pivot",
   geographic_change: "geo_move",
   "geographic-change": "geo_move",
   lateral_move: "lateral_role",
@@ -255,15 +299,72 @@ function normalizeEnum(
   return map[key] ?? raw;
 }
 
+/**
+ * A few agents wrote regional aggregates ("asia", "global", "me") in the
+ * locale column instead of a country code. We don't lose those rows —
+ * the path_id slug usually has a real country prefix that we extract,
+ * and otherwise we pick a sensible default for the region.
+ */
+const LOCALE_AGGREGATE_MAP: Record<string, string> = {
+  asia: "sg",
+  apac: "sg",
+  sea: "sg",
+  global: "us",
+  worldwide: "us",
+  international: "us",
+  me: "ae",
+  mena: "ae",
+  middleeast: "ae",
+  "middle-east": "ae",
+  gcc: "ae",
+  emea: "uk",
+  latam: "mx",
+  africa: "za",
+  ssa: "za",
+  europe: "eu",
+  cis: "kz",
+  oceania: "au",
+};
+
+function normalizeLocale(raw: string | undefined, slug?: string): string | undefined {
+  if (!raw) return raw;
+  const v = raw.toLowerCase().trim();
+  if (LOCALE_AGGREGATE_MAP[v]) return LOCALE_AGGREGATE_MAP[v];
+  // If the slug starts with a recognized 2-letter prefix, prefer that.
+  if (slug && /^[a-z]{2}-/.test(slug)) return slug.slice(0, 2);
+  return raw;
+}
+
+const CONFIDENCE_NORMALIZATION: Record<string, string> = {
+  med: "medium",
+  hi: "high",
+  lo: "low",
+  h: "high",
+  m: "medium",
+  l: "low",
+  // capitalized variants get lowercased by normalizeEnum already
+};
+
 function normalizeRow(raw: Record<string, string>): Record<string, string> {
+  // Under `noUncheckedIndexedAccess`, `raw.X` widens to `string | undefined`;
+  // we coerce with `?? ""` so the result type satisfies `Record<string, string>`.
+  // Empty strings then fail Zod validation downstream, which is the desired
+  // behaviour for genuinely missing fields.
   return {
     ...raw,
+    locale: normalizeLocale(raw.locale, raw.path_id) ?? raw.locale ?? "",
     starting_stage:
       normalizeEnum(raw.starting_stage, STAGE_NORMALIZATION) ??
-      raw.starting_stage,
+      raw.starting_stage ??
+      "",
     transition_type:
       normalizeEnum(raw.transition_type, TRANSITION_NORMALIZATION) ??
-      raw.transition_type,
+      raw.transition_type ??
+      "",
+    confidence:
+      normalizeEnum(raw.confidence, CONFIDENCE_NORMALIZATION) ??
+      raw.confidence ??
+      "",
   };
 }
 
