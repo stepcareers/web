@@ -2716,9 +2716,12 @@ function RoadmapTimeline({
       ? `${sym}${profile.minSalary.toLocaleString()}+`
       : null;
 
-  // Day 90 — total action count across recs (signal of commitment volume)
+  // Day 90 — total action count across recs (signal of commitment volume).
+  // Defensive: cached results from older schema versions may have
+  // `ninetyDayActions` as undefined / not-an-array.
   const totalActions = recommendations.reduce(
-    (acc, r) => acc + r.ninetyDayActions.length,
+    (acc, r) =>
+      acc + (Array.isArray(r.ninetyDayActions) ? r.ninetyDayActions.length : 0),
     0,
   );
   const top = recommendations[0];
@@ -2880,18 +2883,22 @@ function buildPlanMarkdown(
     lines.push(`**Evidence:** ${rec.pathEvidence}`);
     lines.push("");
     lines.push(`**90-day actions:**`);
-    rec.ninetyDayActions.forEach((a) => lines.push(`- ${a}`));
+    if (Array.isArray(rec.ninetyDayActions)) {
+      rec.ninetyDayActions.forEach((a) => lines.push(`- ${a}`));
+    }
     lines.push("");
     lines.push(`**12-month outcome:** ${rec.twelveMonthOutcome}`);
     lines.push("");
     lines.push(`**Similar pattern:** ${rec.similarProfilePattern}`);
     lines.push("");
     lines.push(
-      `**Confidence:** ${rec.confidence.level} — ${rec.confidence.reason}`,
+      `**Confidence:** ${rec.confidence?.level ?? "low"} — ${rec.confidence?.reason ?? ""}`,
     );
     lines.push("");
-    lines.push(`**Based on paths:** ${rec.basedOnPathIds.join(", ")}`);
-    lines.push("");
+    if (Array.isArray(rec.basedOnPathIds)) {
+      lines.push(`**Based on paths:** ${rec.basedOnPathIds.join(", ")}`);
+      lines.push("");
+    }
   });
 
   lines.push("## Honest take");
