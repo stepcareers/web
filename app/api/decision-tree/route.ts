@@ -84,12 +84,19 @@ export async function POST(req: NextRequest) {
 
   const t0 = Date.now();
 
-  // Up to 2 attempts — Haiku 4.5 occasionally produces output that
+  // Up to 3 attempts — Haiku 4.5 occasionally produces output that
   // doesn't match the schema (e.g. branches[].trigger too short, or
   // earlyPivotSignals with 1 item). Most retries succeed because the
-  // model isn't deterministic at temp 0.4. We bump temp slightly on
-  // retry to break out of any sticky bad pattern.
+  // model isn't deterministic at temp 0.4. We bump temp on each retry
+  // to break out of any sticky bad pattern.
+  //
+  // maxOutputTokens 4000: empirically 2500 was occasionally truncating
+  // mid-JSON for richer profiles (3 stages × up to 3 branches each +
+  // 3 endScenarios + up to 5 earlyPivotSignals + anchor preamble can
+  // exceed 2.5k output tokens). 4000 leaves headroom without blowing
+  // the 60s function budget — Haiku 4.5 streams at ~150 tok/s.
   async function tryGenerate(attempt: number) {
+    const temperature = [0.4, 0.55, 0.7][attempt] ?? 0.55;
     return generateObject({
       model: anthropic(MODEL),
       schema: DecisionTreeResultSchema,
@@ -102,8 +109,8 @@ export async function POST(req: NextRequest) {
         },
         retrievedPathSlugs: body.retrievedPathSlugs,
       }),
-      temperature: attempt === 0 ? 0.4 : 0.55,
-      maxOutputTokens: 2500,
+      temperature,
+      maxOutputTokens: 4000,
     });
   }
 
@@ -114,9 +121,20 @@ export async function POST(req: NextRequest) {
     } catch (firstErr) {
       if (NoObjectGeneratedError.isInstance(firstErr)) {
         console.warn(
-          "[/api/decision-tree] first attempt failed schema, retrying...",
+          "[/api/decision-tree] attempt 1 failed schema, retrying with higher temp...",
         );
-        result = await tryGenerate(1);
+        try {
+          result = await tryGenerate(1);
+        } catch (secondErr) {
+          if (NoObjectGeneratedError.isInstance(secondErr)) {
+            console.warn(
+              "[/api/decision-tree] attempt 2 failed schema, retrying once more...",
+            );
+            result = await tryGenerate(2);
+          } else {
+            throw secondErr;
+          }
+        }
       } else {
         throw firstErr;
       }

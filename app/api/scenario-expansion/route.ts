@@ -71,8 +71,11 @@ export async function POST(req: NextRequest) {
 
   const t0 = Date.now();
 
-  // Up to 2 attempts — same retry logic as /api/decision-tree.
+  // Up to 3 attempts — same retry logic as /api/decision-tree.
+  // Bumped maxOutputTokens 1800 → 2800 to avoid mid-JSON truncation on
+  // richer profiles (3 horizons × ~500 chars each + risks + tradeoff).
   async function tryGenerate(attempt: number) {
+    const temperature = [0.4, 0.55, 0.7][attempt] ?? 0.55;
     return generateObject({
       model: anthropic(MODEL),
       schema: ScenarioExpansionSchema,
@@ -81,8 +84,8 @@ export async function POST(req: NextRequest) {
         rec: body.rec,
         profile: { ...body.profile, locale: body.profile.locale ?? "en" },
       }),
-      temperature: attempt === 0 ? 0.4 : 0.55,
-      maxOutputTokens: 1800,
+      temperature,
+      maxOutputTokens: 2800,
     });
   }
 
@@ -93,9 +96,20 @@ export async function POST(req: NextRequest) {
     } catch (firstErr) {
       if (NoObjectGeneratedError.isInstance(firstErr)) {
         console.warn(
-          "[/api/scenario-expansion] first attempt failed schema, retrying...",
+          "[/api/scenario-expansion] attempt 1 failed schema, retrying...",
         );
-        result = await tryGenerate(1);
+        try {
+          result = await tryGenerate(1);
+        } catch (secondErr) {
+          if (NoObjectGeneratedError.isInstance(secondErr)) {
+            console.warn(
+              "[/api/scenario-expansion] attempt 2 failed schema, retrying once more...",
+            );
+            result = await tryGenerate(2);
+          } else {
+            throw secondErr;
+          }
+        }
       } else {
         throw firstErr;
       }

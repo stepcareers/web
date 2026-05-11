@@ -316,38 +316,38 @@ export type FollowUpQuestionsResult = z.infer<
 // prompt to guide the shape; Zod just enforces the hard contract
 // (key presence, types, gross sanity).
 export const DecisionTreeStageSchema = z.object({
-  label: z.string().min(3).max(60),
-  main: z.string().min(15).max(700),
+  label: z.string().min(2).max(80),
+  main: z.string().min(8).max(900),
   branches: z
     .array(
       z.object({
-        trigger: z.string().min(5).max(280),
-        outcome: z.string().min(8).max(400),
+        trigger: z.string().min(3).max(350),
+        outcome: z.string().min(5).max(500),
       }),
     )
-    .max(4)
+    .max(5)
     .default([]),
 });
 
 export const DecisionTreeResultSchema = z.object({
-  anchorTitle: z.string().min(5).max(220),
+  anchorTitle: z.string().min(5).max(280),
   anchorLeverage: LeverageEnum,
   stages: z
     .array(DecisionTreeStageSchema)
     .min(2)
-    .max(4)
+    .max(5)
     .describe(
-      "Time-window stages. Aim for 3 (NOW→D90, D90→M6, M6→M18) but accept 2-4 if the model deems it cleaner.",
+      "Time-window stages. Aim for 3 (NOW→D90, D90→M6, M6→M18) but accept 2-5 if the model deems it cleaner.",
     ),
   endScenarios: z.object({
-    best: z.string().min(15).max(500),
-    base: z.string().min(15).max(500),
-    worst: z.string().min(15).max(500),
+    best: z.string().min(8).max(600),
+    base: z.string().min(8).max(600),
+    worst: z.string().min(8).max(600),
   }),
   earlyPivotSignals: z
-    .array(z.string().min(6).max(300))
+    .array(z.string().min(4).max(400))
     .min(1)
-    .max(5)
+    .max(7)
     .describe("Early-warning signals to pivot."),
 });
 
@@ -362,12 +362,12 @@ export type DecisionTreeResult = z.infer<typeof DecisionTreeResultSchema>;
  * ──────────────────────────────────────────────────────────────── */
 
 export const ScenarioExpansionSchema = z.object({
-  recTitle: z.string().min(5).max(220),
-  threeMonth: z.string().min(15).max(550),
-  twelveMonth: z.string().min(15).max(600),
-  fiveYear: z.string().min(15).max(600),
-  risks: z.array(z.string().min(8).max(320)).min(1).max(5),
-  tradeoff: z.string().min(10).max(450),
+  recTitle: z.string().min(5).max(280),
+  threeMonth: z.string().min(8).max(700),
+  twelveMonth: z.string().min(8).max(800),
+  fiveYear: z.string().min(8).max(800),
+  risks: z.array(z.string().min(4).max(400)).min(1).max(7),
+  tradeoff: z.string().min(6).max(550),
 });
 
 export type ScenarioExpansion = z.infer<typeof ScenarioExpansionSchema>;

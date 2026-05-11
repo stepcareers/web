@@ -3355,6 +3355,7 @@ function DecisionTreeBox({
   const [tree, setTree] = useState<DecisionTreeData | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "err">("loading");
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   // Anchor the tree on the FOUNDATION rec (or rank-1 rec as fallback).
   const foundationRec =
@@ -3368,6 +3369,8 @@ function DecisionTreeBox({
       return;
     }
     let cancelled = false;
+    setStatus("loading");
+    setErrMsg(null);
     async function fetchTree() {
       try {
         const res = await fetch("/api/decision-tree", {
@@ -3420,7 +3423,7 @@ function DecisionTreeBox({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [retryCount]);
 
   function onUnlockClick() {
     track("decision_tree_lock_clicked");
@@ -3448,9 +3451,26 @@ function DecisionTreeBox({
 
   if (status === "err" || !tree) {
     return (
-      <div className="rounded-lg border border-ink-200/20 bg-ink-200/[0.02] p-3 text-xs text-ink-200/50">
-        Couldn&apos;t load the decision tree
-        {errMsg ? `: ${errMsg}` : ""}.
+      <div className="rounded-lg border border-amber-400/25 bg-amber-400/[0.04] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-semibold text-ink-200/90">
+              Decision tree didn&apos;t generate this time
+            </h3>
+            <p className="mt-1 text-xs text-ink-200/60">
+              {errMsg && errMsg !== "Couldn't generate the decision tree. Try refreshing the page."
+                ? errMsg
+                : "Sometimes the model produces output our validator rejects. Hitting retry usually fixes it."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRetryCount((n) => n + 1)}
+            className="shrink-0 rounded-full bg-amber-400 px-4 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-amber-300"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
