@@ -2517,7 +2517,7 @@ function LoadingView({
   const phases = [
     { at: 0, label: "Embedding your profile" },
     { at: 1, label: "Searching 8,500+ paths" },
-    { at: 3, label: "Drafting your plan with Claude" },
+    { at: 3, label: "Drafting your plan" },
   ];
   const activeIndex = phases.reduce(
     (acc, p, i) => (elapsedSec >= p.at ? i : acc),
