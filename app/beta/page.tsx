@@ -385,6 +385,63 @@ function loadingMessageFor(elapsedSec: number): string {
 // new RecommendationCard, so we silently invalidate them.
 const RESULT_STORAGE_KEY = "step:beta:lastResult:v2";
 
+/* ─── Action checkbox state ────────────────────────────────────────
+ *
+ * Each 90-day action becomes a checkbox the user can tick off. State
+ * is persisted in localStorage under a single key so the user feels
+ * progress across page reloads. The key per-action is a hash of
+ * (rec.title + action.text) so it survives even if recommendations
+ * shift order between regenerations of the same plan, and so the
+ * state is per-content rather than per-(plan instance + index).
+ *
+ * Trade-off: if two different plans happen to produce the same exact
+ * title+action text, they share state. Acceptable — it means the user
+ * has the same action twice, which is intuitively "one tick covers
+ * both."
+ * ────────────────────────────────────────────────────────────────── */
+const ACTIONS_DONE_KEY = "step:actions-done:v1";
+
+function actionStateKey(recTitle: string, actionText: string): string {
+  // Truncate aggressively to keep localStorage small + avoid huge keys.
+  // Lowercase + collapse whitespace so trivial formatting drift doesn't
+  // create a new key.
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 80);
+  return `${normalize(recTitle)}::${normalize(actionText)}`;
+}
+
+function useActionsDone() {
+  const [done, setDone] = useState<Record<string, boolean>>({});
+  // Load on mount only (client-side). Falls back to empty {} on any error.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(ACTIONS_DONE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") setDone(parsed);
+      }
+    } catch {
+      /* corrupt JSON / quota / private mode — silently no-op */
+    }
+  }, []);
+
+  const toggle = (key: string) => {
+    setDone((prev) => {
+      const next = { ...prev };
+      if (next[key]) delete next[key];
+      else next[key] = true;
+      try {
+        window.localStorage.setItem(ACTIONS_DONE_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  return { done, toggle };
+}
+
 /* ─── Premium unlock (decision tree + per-rec scenarios) ──────────
  *
  * Set when the user submits the post-result CTA with the "I'm
@@ -2586,6 +2643,8 @@ function StreamingView({
               rec={rec}
               index={i + 1}
               profile={null}
+              actionsDone={{}}
+              onToggleAction={() => undefined}
             />
           ))}
         </div>
@@ -2933,6 +2992,23 @@ function ResultView({
 }) {
   const { result, meta } = data;
   const [copyState, setCopyState] = useState<"idle" | "copied" | "err">("idle");
+  const { done: actionsDone, toggle: toggleAction } = useActionsDone();
+
+  // Total + done counts across ALL recommendations. Drives the progress
+  // pill at the top of the page — gives the user a concrete sense that
+  // this is a checklist, not a doc to read.
+  const totalActions = result.recommendations.reduce(
+    (acc, r) => acc + r.ninetyDayActions.length,
+    0,
+  );
+  const doneActions = result.recommendations.reduce(
+    (acc, r) =>
+      acc +
+      r.ninetyDayActions.filter(
+        (a) => actionsDone[actionStateKey(r.title, a)],
+      ).length,
+    0,
+  );
 
   async function copyPlan() {
     const md = buildPlanMarkdown(data, profile);
@@ -2948,6 +3024,13 @@ function ResultView({
     }
   }
 
+  // Foundation rec is always the lead. We slot the follow-up questions
+  // right after it so the user can sharpen the plan as soon as they've
+  // read the most important move (instead of scrolling past 3 other
+  // recs + honest take + decision tree to find the input).
+  const firstRec = result.recommendations[0];
+  const restRecs = result.recommendations.slice(1);
+
   return (
     <section className="flex flex-col gap-10">
       <RoadmapTimeline
@@ -2955,41 +3038,89 @@ function ResultView({
         recommendations={result.recommendations}
       />
 
+      {/* Premium nudge right under the roadmap — the user has just seen
+          the concrete payoff (their 5-year vision laid out NOW → DAY 90 →
+          MONTH 12 → YEAR 5) and is at peak motivation. PremiumCard already
+          returns null when the user is unlocked, so this is a safe nudge
+          that disappears once they convert. */}
+      <PremiumCard />
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
             Your next steps
           </h1>
           <p className="mt-2 text-sm text-ink-200/60 dark:text-ink-200/50">
-            {result.recommendations.length} ranked moves · grounded in{" "}
-            {meta.retrievalCount} similar profiles ·{" "}
-            {Math.round(meta.timings.totalMs / 1000)}s to generate
+            {result.recommendations.length} ranked moves · {totalActions}{" "}
+            concrete actions · grounded in {meta.retrievalCount} similar
+            profiles
           </p>
         </div>
-        <button
-          type="button"
-          onClick={copyPlan}
-          className="self-start rounded-full border border-ink-200/40 px-4 py-2 text-sm transition hover:border-ink-50 hover:bg-ink-50/5 sm:self-auto"
-          aria-live="polite"
-        >
-          {copyState === "copied"
-            ? "✓ Copied to clipboard"
-            : copyState === "err"
-              ? "⚠ Copy failed — try again"
-              : "Copy plan as text"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {totalActions > 0 && (
+            <span
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                doneActions === 0
+                  ? "border border-ink-200/30 text-ink-200/70"
+                  : doneActions === totalActions
+                    ? "bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/40"
+                    : "bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/35"
+              }`}
+              aria-live="polite"
+            >
+              {doneActions}/{totalActions} actions started
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={copyPlan}
+            className="rounded-full border border-ink-200/40 px-4 py-2 text-sm transition hover:border-ink-50 hover:bg-ink-50/5"
+            aria-live="polite"
+          >
+            {copyState === "copied"
+              ? "✓ Copied"
+              : copyState === "err"
+                ? "⚠ Try again"
+                : "Copy plan"}
+          </button>
+        </div>
       </div>
 
-      <div className="flex flex-col gap-8">
-        {result.recommendations.map((rec, i) => (
-          <RecommendationCard
-            key={i}
-            rec={rec}
-            index={i + 1}
-            profile={profile}
-          />
-        ))}
-      </div>
+      {/* Foundation move alone first, so the user can act on it before
+          being distracted by the other 3 recs. */}
+      {firstRec && (
+        <RecommendationCard
+          rec={firstRec}
+          index={1}
+          profile={profile}
+          actionsDone={actionsDone}
+          onToggleAction={toggleAction}
+        />
+      )}
+
+      {/* Follow-up questions slotted right under the foundation move —
+          the user reads it, has a question, clicks an option to sharpen.
+          Action-oriented placement, not buried at the bottom. */}
+      <FollowUpQuestionsBox
+        whatWeDontKnow={result.whatWeDontKnow}
+        recommendationTitles={result.recommendations.map((r) => r.title)}
+        onRefine={onRefine}
+      />
+
+      {restRecs.length > 0 && (
+        <div className="flex flex-col gap-8">
+          {restRecs.map((rec, i) => (
+            <RecommendationCard
+              key={i + 1}
+              rec={rec}
+              index={i + 2}
+              profile={profile}
+              actionsDone={actionsDone}
+              onToggleAction={toggleAction}
+            />
+          ))}
+        </div>
+      )}
 
       <div className="rounded-lg border border-ink-200/20 p-5">
         <h2 className="text-base font-semibold uppercase tracking-wider text-ink-200/70">
@@ -3011,15 +3142,7 @@ function ResultView({
         retrievedPathIds={meta.retrievedPathIds ?? []}
       />
 
-      <FollowUpQuestionsBox
-        whatWeDontKnow={result.whatWeDontKnow}
-        recommendationTitles={result.recommendations.map((r) => r.title)}
-        onRefine={onRefine}
-      />
-
       <FillTheGapsBox onRefine={onRefine} />
-
-      <PremiumCard />
 
       <PostResultCTA />
 
@@ -4245,10 +4368,14 @@ function RecommendationCard({
   rec,
   index,
   profile,
+  actionsDone,
+  onToggleAction,
 }: {
   rec: Recommendation;
   index: number;
   profile: ProfileSnapshot | null;
+  actionsDone: Record<string, boolean>;
+  onToggleAction: (key: string) => void;
 }) {
   const confidenceColor =
     rec.confidence.level === "high"
@@ -4257,19 +4384,32 @@ function RecommendationCard({
         ? "text-yellow-600 dark:text-yellow-400"
         : "text-red-600 dark:text-red-400";
 
+  const isFoundation = rec.leverage === "foundation";
+  // Foundation cards get a stronger treatment: larger index circle, more
+  // amber on the background, "Your foundation move" inline label. The
+  // intent is: the user should immediately know which move to start with.
+  const cardClasses = isFoundation
+    ? "rounded-2xl border border-amber-400/30 bg-gradient-to-b from-amber-400/[0.06] via-amber-400/[0.02] to-transparent p-6 shadow-[0_12px_30px_-20px_rgba(245,158,11,0.45)] md:p-7"
+    : "rounded-2xl border border-ink-200/15 bg-gradient-to-b from-amber-400/[0.02] to-transparent p-6 md:p-7";
+  const indexClasses = isFoundation
+    ? "flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-400 text-base font-bold text-ink-950 shadow-[0_4px_12px_-2px_rgba(245,158,11,0.6)]"
+    : "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-400/15 text-base font-semibold text-amber-300 ring-1 ring-amber-400/30";
+
   return (
-    <article className="rounded-2xl border border-ink-200/15 bg-gradient-to-b from-amber-400/[0.02] to-transparent p-6 md:p-7">
+    <article className={cardClasses}>
       {/* Header: big accent number + title + leverage. Rationale follows
           directly under the title so the card reads top-down without a
           "what is this paragraph for?" moment. */}
       <header className="flex flex-wrap items-start gap-4 border-b border-ink-200/10 pb-5 md:flex-nowrap">
-        <div
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-400/15 text-base font-semibold text-amber-300 ring-1 ring-amber-400/30"
-          aria-hidden
-        >
+        <div className={indexClasses} aria-hidden>
           {index}
         </div>
         <div className="min-w-0 flex-1">
+          {isFoundation && (
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+              Start here — your foundation move
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <h3 className="text-xl font-semibold leading-tight md:text-[1.55rem]">
               {rec.title}
@@ -4300,21 +4440,62 @@ function RecommendationCard({
           column on mobile so nothing gets squished. */}
       <div className="mt-6 grid gap-5 md:grid-cols-[1.45fr_1fr]">
         <section className="rounded-lg border border-ink-200/10 bg-ink-200/[0.02] p-4">
-          <h4 className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/65">
-            90-day actions
-          </h4>
-          <ol className="mt-3 flex flex-col gap-3 text-sm leading-relaxed">
-            {rec.ninetyDayActions.map((a, i) => (
-              <li key={i} className="flex gap-3">
-                <span
-                  className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-400/35 bg-amber-400/5 text-[10px] font-semibold text-amber-300/90"
-                  aria-hidden
-                >
-                  {i + 1}
+          <div className="flex items-baseline justify-between">
+            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/65">
+              90-day actions
+            </h4>
+            {(() => {
+              const total = rec.ninetyDayActions.length;
+              const doneCount = rec.ninetyDayActions.reduce(
+                (acc, a) =>
+                  acc + (actionsDone[actionStateKey(rec.title, a)] ? 1 : 0),
+                0,
+              );
+              if (doneCount === 0) return null;
+              return (
+                <span className="text-[10px] font-semibold text-amber-300/85">
+                  {doneCount}/{total} done
                 </span>
-                <span className="text-ink-200/90">{a}</span>
-              </li>
-            ))}
+              );
+            })()}
+          </div>
+          <ol className="mt-3 flex flex-col gap-2 text-sm leading-relaxed">
+            {rec.ninetyDayActions.map((a, i) => {
+              const key = actionStateKey(rec.title, a);
+              const isDone = !!actionsDone[key];
+              return (
+                <li key={i}>
+                  <button
+                    type="button"
+                    onClick={() => onToggleAction(key)}
+                    aria-pressed={isDone}
+                    className={`group flex w-full gap-3 rounded-md p-2 text-left transition hover:bg-ink-200/[0.04] ${
+                      isDone ? "opacity-60" : ""
+                    }`}
+                  >
+                    <span
+                      className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold transition ${
+                        isDone
+                          ? "bg-emerald-400 text-ink-950"
+                          : "border border-amber-400/35 bg-amber-400/5 text-amber-300/90 group-hover:border-amber-400/70 group-hover:bg-amber-400/15"
+                      }`}
+                      aria-hidden
+                    >
+                      {isDone ? "✓" : i + 1}
+                    </span>
+                    <span
+                      className={`flex-1 ${
+                        isDone
+                          ? "text-ink-200/55 line-through"
+                          : "text-ink-200/90"
+                      }`}
+                    >
+                      {a}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ol>
         </section>
 
