@@ -2997,16 +2997,24 @@ function ResultView({
   // Total + done counts across ALL recommendations. Drives the progress
   // pill at the top of the page — gives the user a concrete sense that
   // this is a checklist, not a doc to read.
+  //
+  // Defensive: cached results from older schema versions may not have
+  // `ninetyDayActions` as an array (the salvage path during a 60s timeout
+  // can also produce partial recs). Guard with Array.isArray so a stale
+  // localStorage entry doesn't blow up the result page.
   const totalActions = result.recommendations.reduce(
-    (acc, r) => acc + r.ninetyDayActions.length,
+    (acc, r) =>
+      acc + (Array.isArray(r.ninetyDayActions) ? r.ninetyDayActions.length : 0),
     0,
   );
   const doneActions = result.recommendations.reduce(
     (acc, r) =>
       acc +
-      r.ninetyDayActions.filter(
-        (a) => actionsDone[actionStateKey(r.title, a)],
-      ).length,
+      (Array.isArray(r.ninetyDayActions)
+        ? r.ninetyDayActions.filter(
+            (a) => actionsDone[actionStateKey(r.title, a)],
+          ).length
+        : 0),
     0,
   );
 
@@ -4397,10 +4405,23 @@ function RecommendationCard({
   actionsDone: Record<string, boolean>;
   onToggleAction: (key: string) => void;
 }) {
+  // Defensive: cached results from older schema versions may have
+  // `ninetyDayActions` as undefined / not-an-array, and salvaged partial
+  // results during a 60s timeout can also produce incomplete recs. Default
+  // to an empty array so the card still renders cleanly instead of crashing
+  // on `.map` / `.filter` / `.reduce`.
+  const actions = Array.isArray(rec.ninetyDayActions)
+    ? rec.ninetyDayActions
+    : [];
+  const basedOnPathIds = Array.isArray(rec.basedOnPathIds)
+    ? rec.basedOnPathIds
+    : [];
+  const confidenceLevel = rec.confidence?.level ?? "low";
+  const confidenceReason = rec.confidence?.reason ?? "";
   const confidenceColor =
-    rec.confidence.level === "high"
+    confidenceLevel === "high"
       ? "text-green-600 dark:text-green-400"
-      : rec.confidence.level === "medium"
+      : confidenceLevel === "medium"
         ? "text-yellow-600 dark:text-yellow-400"
         : "text-red-600 dark:text-red-400";
 
@@ -4465,8 +4486,8 @@ function RecommendationCard({
               90-day actions
             </h4>
             {(() => {
-              const total = rec.ninetyDayActions.length;
-              const doneCount = rec.ninetyDayActions.reduce(
+              const total = actions.length;
+              const doneCount = actions.reduce(
                 (acc, a) =>
                   acc + (actionsDone[actionStateKey(rec.title, a)] ? 1 : 0),
                 0,
@@ -4480,7 +4501,7 @@ function RecommendationCard({
             })()}
           </div>
           <ol className="mt-3 flex flex-col gap-2 text-sm leading-relaxed">
-            {rec.ninetyDayActions.map((a, i) => {
+            {actions.map((a, i) => {
               const key = actionStateKey(rec.title, a);
               const isDone = !!actionsDone[key];
               return (
@@ -4545,22 +4566,28 @@ function RecommendationCard({
       <footer className="mt-6 flex flex-col gap-2.5 border-t border-ink-200/10 pt-4 text-xs">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-ink-200/65">
           <span className={`font-semibold ${confidenceColor}`}>
-            {rec.confidence.level.toUpperCase()} confidence
+            {confidenceLevel.toUpperCase()} confidence
           </span>
-          <span className="text-ink-200/35">·</span>
-          <span className="leading-relaxed">{rec.confidence.reason}</span>
+          {confidenceReason && (
+            <>
+              <span className="text-ink-200/35">·</span>
+              <span className="leading-relaxed">{confidenceReason}</span>
+            </>
+          )}
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 text-ink-200/55">
-          <span className="text-ink-200/40">Based on:</span>
-          {rec.basedOnPathIds.map((id) => (
-            <code
-              key={id}
-              className="rounded bg-ink-200/10 px-1.5 py-0.5 text-[11px]"
-            >
-              {id}
-            </code>
-          ))}
-        </div>
+        {basedOnPathIds.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 text-ink-200/55">
+            <span className="text-ink-200/40">Based on:</span>
+            {basedOnPathIds.map((id) => (
+              <code
+                key={id}
+                className="rounded bg-ink-200/10 px-1.5 py-0.5 text-[11px]"
+              >
+                {id}
+              </code>
+            ))}
+          </div>
+        )}
       </footer>
 
       <FeedbackWidget rec={rec} index={index} />
