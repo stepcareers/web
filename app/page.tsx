@@ -176,7 +176,7 @@ export default function LandingPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Link
             href="/beta"
-            className="self-start rounded-full bg-ink-50 px-7 py-3.5 text-sm font-medium text-ink-950 transition hover:opacity-80"
+            className="self-start rounded-full bg-amber-400 px-7 py-3.5 text-sm font-semibold text-ink-950 shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_10px_22px_-14px_rgba(245,158,11,0.6)] transition hover:bg-amber-300"
           >
             Try the beta →
           </Link>

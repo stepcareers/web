@@ -1348,7 +1348,7 @@ export default function BetaPage() {
               <button
                 type="button"
                 onClick={goNext}
-                className="rounded-full bg-ink-50 px-7 py-3 text-sm font-medium text-ink-950 transition hover:opacity-80"
+                className="rounded-full bg-amber-400 px-7 py-3 text-sm font-semibold text-ink-950 shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_8px_18px_-12px_rgba(245,158,11,0.55)] transition hover:bg-amber-300"
               >
                 Continue →
               </button>
@@ -1356,7 +1356,7 @@ export default function BetaPage() {
               <button
                 type="button"
                 onClick={() => handleSubmit()}
-                className="rounded-full bg-ink-50 px-7 py-3 text-sm font-medium text-ink-950 transition hover:opacity-80"
+                className="rounded-full bg-amber-400 px-7 py-3 text-sm font-semibold text-ink-950 shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_8px_18px_-12px_rgba(245,158,11,0.55)] transition hover:bg-amber-300"
               >
                 Get my next steps
               </button>
@@ -2424,7 +2424,7 @@ function CvUpload({
           type="button"
           onClick={submit}
           disabled={!ready}
-          className="rounded-full bg-ink-50 px-7 py-3 text-sm font-medium text-ink-950 transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-full bg-amber-400 px-7 py-3 text-sm font-semibold text-ink-950 shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_8px_18px_-12px_rgba(245,158,11,0.55)] transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-ink-200/40 disabled:text-ink-950/50 disabled:shadow-none"
         >
           {status === "parsing"
             ? "Reading your CV…"
@@ -2448,17 +2448,72 @@ function LoadingView({
   message: string;
   elapsedSec: number;
 }) {
+  // The actual pipeline phases (embed → retrieve → generate) run on the
+  // server, and the client doesn't receive a server-side event until the
+  // first "retrieved" message lands (typically <1s in). So this is a
+  // *perceptual* progress indicator — it advances on a fixed timer so the
+  // user feels the system is doing something rather than staring at a
+  // spinner. Once the server starts streaming, this view is replaced by
+  // StreamingView so the real path data takes over.
+  const phases = [
+    { at: 0, label: "Embedding your profile" },
+    { at: 1, label: "Searching 8,500+ paths" },
+    { at: 3, label: "Drafting your plan with Claude" },
+  ];
+  const activeIndex = phases.reduce(
+    (acc, p, i) => (elapsedSec >= p.at ? i : acc),
+    0,
+  );
+
   return (
-    <section className="my-auto flex flex-col items-center gap-6 py-16 text-center">
-      <div
-        className="h-10 w-10 animate-spin rounded-full border-2 border-ink-200/30 border-t-ink-50"
-        aria-label="Loading"
-      />
-      <p className="text-lg">{message}</p>
-      <p className="text-sm text-ink-200/60 dark:text-ink-200/50">
-        Claude is generating your plan. Typical: 30–60 seconds — longer
-        for richer profiles.
-        {elapsedSec > 0 && ` (${elapsedSec}s elapsed)`}
+    <section className="my-auto flex flex-col items-center gap-8 py-16">
+      <div className="flex items-center gap-4">
+        <div
+          className="h-9 w-9 animate-spin rounded-full border-2 border-amber-400/25 border-t-amber-400"
+          aria-label="Loading"
+        />
+        <p className="text-lg font-medium">{message}</p>
+      </div>
+
+      <ol className="flex flex-col gap-2.5 text-sm">
+        {phases.map((p, i) => {
+          const done = i < activeIndex;
+          const active = i === activeIndex;
+          return (
+            <li
+              key={p.label}
+              className={`flex items-center gap-3 transition-opacity ${
+                done || active ? "opacity-100" : "opacity-40"
+              }`}
+            >
+              <span
+                className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
+                  done
+                    ? "bg-amber-400/20 text-amber-300"
+                    : active
+                      ? "bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/40"
+                      : "border border-ink-200/30 text-ink-200/50"
+                }`}
+                aria-hidden
+              >
+                {done ? "✓" : i + 1}
+              </span>
+              <span className={active ? "text-ink-50" : "text-ink-200/75"}>
+                {p.label}
+                {active && (
+                  <span className="ml-1 inline-block animate-pulse text-amber-300">
+                    …
+                  </span>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+
+      <p className="text-xs text-ink-200/50">
+        Typical run: 30–60s · richer profiles take longer
+        {elapsedSec > 0 && ` · ${elapsedSec}s elapsed`}
       </p>
     </section>
   );
@@ -2484,11 +2539,14 @@ function StreamingView({
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-3">
           <div
-            className="h-3 w-3 animate-pulse rounded-full bg-emerald-400"
+            className="h-3 w-3 animate-pulse rounded-full bg-amber-400"
             aria-label="Streaming"
           />
           <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
-            Generating your plan…
+            Generating your plan
+            <span className="ml-1 inline-block animate-pulse text-amber-400">
+              …
+            </span>
           </h1>
         </div>
         <p className="text-sm text-ink-200/60">
