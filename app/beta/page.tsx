@@ -2920,7 +2920,7 @@ function ResultView({
         </button>
       </div>
 
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-8">
         {result.recommendations.map((rec, i) => (
           <RecommendationCard
             key={i}
@@ -4198,68 +4198,109 @@ function RecommendationCard({
         : "text-red-600 dark:text-red-400";
 
   return (
-    <article className="rounded-lg border border-ink-200/20 p-5">
-      <div className="flex flex-wrap items-baseline gap-3">
-        <span className="text-sm font-mono text-ink-200/40">
-          {String(index).padStart(2, "0")}
-        </span>
-        <h3 className="text-xl font-semibold leading-tight">{rec.title}</h3>
-        <LeverageBadge level={rec.leverage} />
-      </div>
+    <article className="rounded-2xl border border-ink-200/15 bg-gradient-to-b from-amber-400/[0.02] to-transparent p-6 md:p-7">
+      {/* Header: big accent number + title + leverage. Rationale follows
+          directly under the title so the card reads top-down without a
+          "what is this paragraph for?" moment. */}
+      <header className="flex flex-wrap items-start gap-4 border-b border-ink-200/10 pb-5 md:flex-nowrap">
+        <div
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-400/15 text-base font-semibold text-amber-300 ring-1 ring-amber-400/30"
+          aria-hidden
+        >
+          {index}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <h3 className="text-xl font-semibold leading-tight md:text-[1.55rem]">
+              {rec.title}
+            </h3>
+            <LeverageBadge level={rec.leverage} />
+          </div>
+          <p className="mt-2.5 text-[15px] leading-relaxed text-ink-200/85">
+            {rec.rationale}
+          </p>
+        </div>
+      </header>
 
-      <p className="mt-2 text-base leading-relaxed">{rec.rationale}</p>
-
+      {/* Evidence — accent-tinted to anchor "this is grounded in real
+          retrieved paths, not invented." */}
       {rec.pathEvidence && (
-        <div className="mt-3 rounded-md border border-ink-200/15 bg-ink-200/[0.03] px-3 py-2 text-xs text-ink-200/70">
-          <span className="font-semibold uppercase tracking-wider text-ink-200/60">
-            Evidence ·{" "}
-          </span>
-          {rec.pathEvidence}
+        <div className="mt-5 rounded-lg border border-amber-400/20 bg-amber-400/[0.05] px-4 py-3 text-sm">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-300/85">
+            Evidence from retrieved paths
+          </div>
+          <p className="mt-1.5 leading-relaxed text-ink-200/90">
+            {rec.pathEvidence}
+          </p>
         </div>
       )}
 
-      <div className="mt-5 flex flex-col gap-1">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
-          90-day actions
-        </h4>
-        <ul className="ml-1 list-disc space-y-1.5 pl-4 text-sm leading-relaxed marker:text-ink-200/40">
-          {rec.ninetyDayActions.map((a, i) => (
-            <li key={i}>{a}</li>
-          ))}
-        </ul>
+      {/* Two-column grid: 90-day actions take the wider left column;
+          outcome + pattern stack on the right. Collapses to a single
+          column on mobile so nothing gets squished. */}
+      <div className="mt-6 grid gap-5 md:grid-cols-[1.45fr_1fr]">
+        <section className="rounded-lg border border-ink-200/10 bg-ink-200/[0.02] p-4">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/65">
+            90-day actions
+          </h4>
+          <ol className="mt-3 flex flex-col gap-3 text-sm leading-relaxed">
+            {rec.ninetyDayActions.map((a, i) => (
+              <li key={i} className="flex gap-3">
+                <span
+                  className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-400/35 bg-amber-400/5 text-[10px] font-semibold text-amber-300/90"
+                  aria-hidden
+                >
+                  {i + 1}
+                </span>
+                <span className="text-ink-200/90">{a}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <div className="flex flex-col gap-4">
+          <section className="rounded-lg border border-ink-200/10 bg-ink-200/[0.02] p-4">
+            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/65">
+              12-month outcome
+            </h4>
+            <p className="mt-2 text-sm leading-relaxed text-ink-200/90">
+              {rec.twelveMonthOutcome}
+            </p>
+          </section>
+          <section className="rounded-lg border border-ink-200/10 bg-ink-200/[0.02] p-4">
+            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-ink-200/65">
+              Similar pattern
+            </h4>
+            <p className="mt-2 text-sm leading-relaxed text-ink-200/90">
+              {rec.similarProfilePattern}
+            </p>
+          </section>
+        </div>
       </div>
 
-      <div className="mt-5 flex flex-col gap-1">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
-          12-month outcome
-        </h4>
-        <p className="text-sm leading-relaxed">{rec.twelveMonthOutcome}</p>
-      </div>
-
-      <div className="mt-5 flex flex-col gap-1">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-ink-200/60">
-          Similar pattern
-        </h4>
-        <p className="text-sm leading-relaxed">{rec.similarProfilePattern}</p>
-      </div>
-
-      <div className="mt-5 flex flex-wrap items-center gap-3 text-xs text-ink-200/60">
-        <span className={`font-semibold ${confidenceColor}`}>
-          {rec.confidence.level.toUpperCase()} confidence
-        </span>
-        <span className="text-ink-200/40">·</span>
-        <span>{rec.confidence.reason}</span>
-      </div>
-
-      <div className="mt-3 text-xs text-ink-200/40">
-        Based on:{" "}
-        {rec.basedOnPathIds.map((id, i) => (
-          <span key={id}>
-            <code className="rounded bg-ink-200/10 px-1.5 py-0.5">{id}</code>
-            {i < rec.basedOnPathIds.length - 1 && ", "}
+      {/* Footer — confidence first, then the paths the model cited. Both
+          live below a soft divider so they read as "metadata" not as
+          part of the recommendation itself. */}
+      <footer className="mt-6 flex flex-col gap-2.5 border-t border-ink-200/10 pt-4 text-xs">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-ink-200/65">
+          <span className={`font-semibold ${confidenceColor}`}>
+            {rec.confidence.level.toUpperCase()} confidence
           </span>
-        ))}
-      </div>
+          <span className="text-ink-200/35">·</span>
+          <span className="leading-relaxed">{rec.confidence.reason}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 text-ink-200/55">
+          <span className="text-ink-200/40">Based on:</span>
+          {rec.basedOnPathIds.map((id) => (
+            <code
+              key={id}
+              className="rounded bg-ink-200/10 px-1.5 py-0.5 text-[11px]"
+            >
+              {id}
+            </code>
+          ))}
+        </div>
+      </footer>
 
       <FeedbackWidget rec={rec} index={index} />
 
