@@ -59,6 +59,11 @@ export default function GlobalError({
             We&apos;ve logged the error and are looking into it. Try reloading
             the page — if it keeps happening, send us a note.
           </p>
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages --
+              global-error.tsx renders outside the Next.js app tree, so the
+              router context is gone. A plain anchor forces a full reload,
+              which is what we want here — the broken React tree is thrown
+              away and replaced by a fresh one. */}
           <a
             href="/"
             style={{
