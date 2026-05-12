@@ -41,6 +41,18 @@ model User {
   updatedAt     DateTime  @updatedAt      @map("updated_at")
   deletedAt     DateTime? @map("deleted_at")
 
+  // ─── Premium (Stripe) ───
+  // `stripeCustomerId` is set on first checkout. We reuse it on every
+  // subsequent payment so the user's billing history stays consolidated.
+  // `premiumUntil` is the moving "Premium expires at" timestamp:
+  //   - Monthly subscriptions: current_period_end from Stripe
+  //   - Lifetime: set to year 9999 (effectively never)
+  //   - Free users: null
+  // Gating uses `premiumUntil > NOW()` so brief lapses (e.g. card decline
+  // grace) don't immediately revoke access mid-task.
+  stripeCustomerId String?   @unique @map("stripe_customer_id")
+  premiumUntil     DateTime? @map("premium_until")
+
   sessions           Session[]
   emailSubscriptions EmailSubscription[]
   accounts           Account[]

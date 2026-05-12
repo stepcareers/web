@@ -9,6 +9,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 import { prisma } from "@/lib/db";
+import { getPremiumStatus } from "@/lib/premium";
 import { AccountActions } from "./AccountActions";
 
 export const metadata = {
@@ -33,19 +34,36 @@ function formatPlanDate(d: Date): string {
   });
 }
 
-export default async function AccountPage() {
+type PageProps = {
+  // Next 15 makes searchParams a Promise — opt into the server-side
+  // streaming model.
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function AccountPage({ searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user?.id) {
     redirect("/login?callbackUrl=/account");
   }
 
+  const sp = await searchParams;
+  const checkoutState =
+    sp.checkout === "success"
+      ? "success"
+      : sp.checkout === "cancelled"
+        ? "cancelled"
+        : null;
+
   const u = session.user;
 
-  const plans = await prisma.plan.findMany({
-    where: { userId: session.user.id, deletedAt: null },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, title: true, createdAt: true },
-  });
+  const [plans, premium] = await Promise.all([
+    prisma.plan.findMany({
+      where: { userId: session.user.id, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, title: true, createdAt: true },
+    }),
+    getPremiumStatus(session.user.id),
+  ]);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col px-6 py-10 md:py-14">
@@ -71,6 +89,53 @@ export default async function AccountPage() {
             <span className="font-medium text-ink-200/95">{u.email}</span>.
           </p>
         </div>
+
+        {/* Checkout return banners — Stripe redirects back here with a
+            ?checkout=success|cancelled flag. Premium activation itself
+            happens on the webhook, which can race the redirect; we tell
+            the user it might take a moment so they don't refresh in a
+            loop. */}
+        {checkoutState === "success" ? (
+          <div className="rounded-lg border border-emerald-400/40 bg-emerald-400/[0.06] p-4">
+            <p className="text-sm font-medium text-emerald-200/95">
+              Payment received — thank you!
+            </p>
+            <p className="mt-1 text-xs text-emerald-200/75">
+              Premium usually activates within a few seconds. Refresh this
+              page if you don&apos;t see the Premium badge yet.
+            </p>
+          </div>
+        ) : null}
+        {checkoutState === "cancelled" ? (
+          <div className="rounded-lg border border-ink-200/15 bg-ink-200/[0.03] p-4">
+            <p className="text-sm text-ink-200/85">
+              Checkout cancelled — no charge was made. You can come back
+              anytime from the planner.
+            </p>
+          </div>
+        ) : null}
+
+        {/* Premium status — only shown when active. Free users keep the
+            real-estate clean and see the upsell on /beta instead. */}
+        {premium.active ? (
+          <div className="rounded-lg border border-amber-400/30 bg-gradient-to-b from-amber-400/[0.06] via-amber-400/[0.02] to-transparent p-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="text-base font-semibold uppercase tracking-wider text-amber-300/85">
+                Premium
+              </h2>
+              <span className="text-xs font-medium uppercase tracking-wider text-amber-300/80">
+                {premium.lifetime ? "Lifetime" : "Active"}
+              </span>
+            </div>
+            <p className="mt-3 text-sm text-ink-200/85">
+              {premium.lifetime
+                ? "You have lifetime access. Decision tree, scenario expansion, and all upcoming Premium features are unlocked."
+                : premium.until
+                  ? `Active until ${formatPlanDate(premium.until)}. Renews automatically.`
+                  : "Active."}
+            </p>
+          </div>
+        ) : null}
 
         <div className="rounded-lg border border-ink-200/20 bg-ink-200/[0.02] p-5">
           <div className="flex items-baseline justify-between gap-3">

@@ -3205,6 +3205,45 @@ function ResultView({
 
 function PremiumCard() {
   const unlocked = usePremiumUnlocked();
+  const { status: authStatus } = useSession();
+  const [buyingPlan, setBuyingPlan] = useState<"monthly" | "lifetime" | null>(
+    null,
+  );
+  const [buyError, setBuyError] = useState<string | null>(null);
+
+  async function handleBuy(plan: "monthly" | "lifetime") {
+    setBuyError(null);
+    track("premium_buy_clicked", { plan });
+
+    // Premium is tied to a Step account so the webhook has somewhere to
+    // write `premiumUntil`. Unauthenticated users get bounced to /login
+    // with a callbackUrl that puts them back on /beta — they'll lose
+    // the in-page plan, but it's persisted to localStorage so the
+    // restore-on-mount path picks it up.
+    if (authStatus !== "authenticated") {
+      window.location.assign("/login?callbackUrl=/beta");
+      return;
+    }
+
+    setBuyingPlan(plan);
+    try {
+      const res = await fetch("/api/checkout/create-session", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan }),
+      });
+      const body = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !body.url) {
+        throw new Error(body.error ?? `Checkout failed (${res.status})`);
+      }
+      window.location.assign(body.url);
+    } catch (e) {
+      setBuyingPlan(null);
+      setBuyError(e instanceof Error ? e.message : "Could not start checkout.");
+    }
+  }
+
   if (unlocked) return null;
   return (
     <section className="rounded-xl border border-purple-400/40 bg-gradient-to-br from-purple-500/[0.08] via-fuchsia-500/[0.06] to-purple-400/[0.04] p-6">
@@ -3241,27 +3280,50 @@ function PremiumCard() {
         <li className="flex items-start gap-2.5">
           <span className="mt-0.5 text-purple-300">●</span>
           <span>
-            <span className="font-medium">Coming soon</span> — personalized
-            monthly 1:1 with a senior advisor, CV review tied to your plan,
-            and matched job opportunities.
+            <span className="font-medium">Email check-ins</span> — 1/7/30/90
+            day nudges asking what you actually did, so the plan adapts
+            instead of becoming wallpaper.
           </span>
         </li>
       </ul>
 
-      <button
-        type="button"
-        onClick={() => {
-          track("premium_card_clicked");
-          scrollToPremiumCTA();
-        }}
-        className="mt-5 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-7 py-3 text-base font-semibold text-white shadow-lg shadow-purple-500/20 transition hover:opacity-90 hover:shadow-purple-500/30"
-      >
-        <span>Get early access</span>
-        <span aria-hidden>→</span>
-      </button>
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+        <button
+          type="button"
+          disabled={buyingPlan !== null}
+          onClick={() => handleBuy("lifetime")}
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-purple-500/20 transition hover:opacity-90 hover:shadow-purple-500/30 disabled:cursor-wait disabled:opacity-60"
+        >
+          {buyingPlan === "lifetime" ? (
+            <span>Loading…</span>
+          ) : (
+            <>
+              <span>Lifetime · €99</span>
+              <span aria-hidden>→</span>
+            </>
+          )}
+        </button>
+        <button
+          type="button"
+          disabled={buyingPlan !== null}
+          onClick={() => handleBuy("monthly")}
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-purple-400/40 bg-purple-500/[0.06] px-6 py-3 text-base font-semibold text-purple-100/95 transition hover:bg-purple-500/[0.12] disabled:cursor-wait disabled:opacity-60"
+        >
+          {buyingPlan === "monthly" ? (
+            <span>Loading…</span>
+          ) : (
+            <span>Monthly · €19/mo</span>
+          )}
+        </button>
+      </div>
+
+      {buyError ? (
+        <p className="mt-3 text-xs text-red-300/90">{buyError}</p>
+      ) : null}
+
       <p className="mt-3 text-xs text-ink-200/55">
-        Drop your email below + tell us what you&apos;d pay. We&apos;ll
-        reach out personally when Premium opens.
+        Secure checkout via Stripe. Cancel anytime on monthly. Lifetime is
+        a one-time payment.
       </p>
     </section>
   );
