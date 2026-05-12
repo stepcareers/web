@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
+import { AccountActions } from "./AccountActions";
 
 export const metadata = {
   title: "Account",
@@ -67,6 +68,18 @@ export default async function AccountPage() {
           >
             Go to the planner →
           </Link>
+        </div>
+
+        {/* GDPR / privacy controls — right of access + right to erasure. */}
+        <div className="rounded-lg border border-ink-200/20 bg-ink-200/[0.02] p-5">
+          <h2 className="text-base font-semibold uppercase tracking-wider text-ink-200/70">
+            Privacy &amp; data
+          </h2>
+          <p className="mt-3 text-sm text-ink-200/75">
+            Under GDPR you can download a copy of everything we hold about you,
+            or permanently delete your account and all linked data at any time.
+          </p>
+          <AccountActions />
         </div>
 
         <form action={logoutAction}>
