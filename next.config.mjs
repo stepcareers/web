@@ -26,8 +26,6 @@ const sentryOptions = {
   authToken: process.env.SENTRY_AUTH_TOKEN,
   // Hide source maps from the public bundle.
   hideSourceMaps: true,
-  // Disables the Sentry CLI from logging build info.
-  disableLogger: true,
 };
 
 export default process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN

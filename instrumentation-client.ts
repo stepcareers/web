@@ -1,6 +1,10 @@
 /**
  * Sentry — browser-side initialization.
  *
+ * Next.js 15+ auto-loads this file in the browser, replacing the older
+ * `sentry.client.config.ts` convention. Works with both Webpack and
+ * Turbopack (the legacy filename only worked with Webpack).
+ *
  * Runs on every page load in the user's browser. Captures unhandled
  * errors, promise rejections, and (optionally) replays of sessions where
  * something went wrong.
@@ -54,3 +58,6 @@ if (dsn) {
     },
   });
 }
+
+// Required by Next 15+ to capture navigation timings for App Router.
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
