@@ -1,12 +1,14 @@
 /**
- * Account page — placeholder for sub-block 2 (plan persistence + history).
+ * Account page — profile + plan history + privacy controls.
  *
- * For now this just confirms the user is signed in and offers a logout
- * button. The "My plans" list lands in the next sub-block.
+ * Server component: pulls the auth session and the user's plan list in
+ * one render pass. Plans are loaded with a direct Prisma call rather
+ * than going through /api/me/plans because we're already on the server.
  */
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
+import { prisma } from "@/lib/db";
 import { AccountActions } from "./AccountActions";
 
 export const metadata = {
@@ -15,18 +17,35 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 
+export const dynamic = "force-dynamic";
+
 async function logoutAction() {
   "use server";
   await signOut({ redirectTo: "/" });
 }
 
+function formatPlanDate(d: Date): string {
+  // "May 12, 2026" — short and unambiguous across EN/IT readers.
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 export default async function AccountPage() {
   const session = await auth();
-  if (!session?.user) {
-    redirect("/login");
+  if (!session?.user?.id) {
+    redirect("/login?callbackUrl=/account");
   }
 
   const u = session.user;
+
+  const plans = await prisma.plan.findMany({
+    where: { userId: session.user.id, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, title: true, createdAt: true },
+  });
 
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col px-6 py-10 md:py-14">
@@ -54,20 +73,55 @@ export default async function AccountPage() {
         </div>
 
         <div className="rounded-lg border border-ink-200/20 bg-ink-200/[0.02] p-5">
-          <h2 className="text-base font-semibold uppercase tracking-wider text-ink-200/70">
-            Your plans
-          </h2>
-          <p className="mt-3 text-sm text-ink-200/75">
-            Plan history is coming next. For now, head back to the beta
-            and any new plan you generate while signed in will be saved
-            to your account automatically.
-          </p>
-          <Link
-            href="/beta"
-            className="mt-4 inline-flex items-center gap-2 rounded-full bg-ink-50 px-5 py-2.5 text-sm font-medium text-ink-950 transition hover:opacity-90"
-          >
-            Go to the planner →
-          </Link>
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-base font-semibold uppercase tracking-wider text-ink-200/70">
+              Your plans
+            </h2>
+            <span className="text-xs tabular-nums text-ink-200/50">
+              {plans.length} saved
+            </span>
+          </div>
+
+          {plans.length === 0 ? (
+            <>
+              <p className="mt-3 text-sm text-ink-200/75">
+                No plans saved yet. Head back to the planner — any plan you
+                generate while signed in will be saved here automatically.
+              </p>
+              <Link
+                href="/beta"
+                className="mt-4 inline-flex items-center gap-2 rounded-full bg-ink-50 px-5 py-2.5 text-sm font-medium text-ink-950 transition hover:opacity-90"
+              >
+                Go to the planner →
+              </Link>
+            </>
+          ) : (
+            <ul className="mt-4 flex flex-col divide-y divide-ink-200/10">
+              {plans.map((p) => (
+                <li key={p.id} className="py-3 first:pt-0 last:pb-0">
+                  <Link
+                    href={`/account/plans/${p.id}`}
+                    className="group flex items-center justify-between gap-3 rounded-md p-2 transition hover:bg-ink-200/[0.03]"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-ink-50/95">
+                        {p.title}
+                      </p>
+                      <p className="mt-0.5 text-xs text-ink-200/55">
+                        {formatPlanDate(p.createdAt)}
+                      </p>
+                    </div>
+                    <span
+                      aria-hidden
+                      className="shrink-0 text-amber-400/85 opacity-60 transition group-hover:translate-x-0.5 group-hover:opacity-100"
+                    >
+                      →
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {/* GDPR / privacy controls — right of access + right to erasure. */}

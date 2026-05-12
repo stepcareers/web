@@ -44,6 +44,7 @@ model User {
   sessions           Session[]
   emailSubscriptions EmailSubscription[]
   accounts           Account[]
+  plans              Plan[]
 
   @@map("users")
   @@index([email])
@@ -211,6 +212,42 @@ model Result {
   @@map("results")
   @@index([createdAt])
   @@index([model])
+}
+
+// ─── Plans (server-saved recommendation sets) ─────────────────────────
+// When a signed-in user finishes generating a plan in /beta, we persist a
+// copy here so they can revisit it from /account. Anonymous users still
+// see their plan in-page but it lives only in their localStorage.
+//
+// `recommendations` is the full RecommendResult JSON (recommendations[],
+// honestTake, whatWeDontKnow) — validated app-side, stored as Json. Keeping
+// the shape opaque means future evolutions of the LLM schema don't require
+// migrations.
+//
+// `title` is a short human label so the list view doesn't need to crack
+// open the JSON to render. We derive it client-side from the foundation
+// recommendation's title.
+//
+// `sourceSessionId` is a loose pointer back to the onboarding Session that
+// produced this plan (null if the session was anonymous and never linked).
+//
+// Soft-delete: `deletedAt` flips when the user removes a plan, so we can
+// still service GDPR export requests with a complete history if needed.
+model Plan {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  title           String
+  recommendations Json
+  sourceSessionId String?   @map("source_session_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt      @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("plans")
+  @@index([userId])
+  @@index([createdAt])
 }
 
 // ─── Email subscriptions (gate + follow-ups) ──────────────────────────

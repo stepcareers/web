@@ -1085,6 +1085,20 @@ export default function BetaPage() {
         totalMs: finalData.meta.timings.totalMs,
       });
 
+      // Fire-and-forget server-side save for signed-in users so the plan
+      // shows up under /account. 401 (anonymous) is the common case and
+      // we swallow it silently — anon users still have their plan in
+      // localStorage via the persistence block below.
+      void fetch("/api/me/plans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recommendations: finalData.result }),
+        credentials: "include",
+      }).catch(() => {
+        // Network blip — not worth surfacing. The plan is already in
+        // localStorage; the user can resave next visit if they want.
+      });
+
       // Persist so the user can refresh / close-and-reopen without losing
       // their plan. Best-effort — quotas / private mode silently no-op.
       // We persist BOTH the result AND a full snapshot of the form
@@ -2624,7 +2638,7 @@ function StreamingView({
           <ul className="flex flex-col gap-1 text-sm text-ink-200/80">
             {retrievedPaths.map((p) => (
               <li key={p.path_id} className="flex items-baseline gap-2">
-                <code className="rounded bg-ink-200/10 px-1.5 py-0.5 text-xs text-ink-200/70">
+                <code className="rounded bg-ink-200/10 px-1.5 py-0.5 text-xs text-ink-200/70 break-all">
                   {p.path_id}
                 </code>
                 <span className="text-ink-200/50">→</span>
@@ -2969,7 +2983,7 @@ function MethodologyCard({ meta }: { meta: ApiResponse["meta"] }) {
                 key={id}
                 className="flex items-baseline gap-2 text-ink-200/85"
               >
-                <code className="rounded bg-ink-200/10 px-1.5 py-0.5 text-xs text-ink-200/70">
+                <code className="rounded bg-ink-200/10 px-1.5 py-0.5 text-xs text-ink-200/70 break-all">
                   {id}
                 </code>
               </li>
@@ -4437,8 +4451,8 @@ function RecommendationCard({
   // amber on the background, "Your foundation move" inline label. The
   // intent is: the user should immediately know which move to start with.
   const cardClasses = isFoundation
-    ? "rounded-2xl border border-amber-400/30 bg-gradient-to-b from-amber-400/[0.06] via-amber-400/[0.02] to-transparent p-6 shadow-[0_12px_30px_-20px_rgba(245,158,11,0.45)] md:p-7"
-    : "rounded-2xl border border-ink-200/15 bg-gradient-to-b from-amber-400/[0.02] to-transparent p-6 md:p-7";
+    ? "rounded-2xl border border-amber-400/30 bg-gradient-to-b from-amber-400/[0.06] via-amber-400/[0.02] to-transparent p-5 shadow-[0_12px_30px_-20px_rgba(245,158,11,0.45)] md:p-7"
+    : "rounded-2xl border border-ink-200/15 bg-gradient-to-b from-amber-400/[0.02] to-transparent p-5 md:p-7";
   const indexClasses = isFoundation
     ? "flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-400 text-base font-bold text-ink-950 shadow-[0_4px_12px_-2px_rgba(245,158,11,0.6)]"
     : "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-400/15 text-base font-semibold text-amber-300 ring-1 ring-amber-400/30";
@@ -4517,7 +4531,7 @@ function RecommendationCard({
                     type="button"
                     onClick={() => onToggleAction(key)}
                     aria-pressed={isDone}
-                    className={`group flex w-full gap-3 rounded-md p-2 text-left transition hover:bg-ink-200/[0.04] ${
+                    className={`group flex w-full min-h-[44px] gap-3 rounded-md p-2 text-left transition hover:bg-ink-200/[0.04] active:bg-ink-200/[0.08] ${
                       isDone ? "opacity-60" : ""
                     }`}
                   >
@@ -4588,7 +4602,7 @@ function RecommendationCard({
             {basedOnPathIds.map((id) => (
               <code
                 key={id}
-                className="rounded bg-ink-200/10 px-1.5 py-0.5 text-[11px]"
+                className="rounded bg-ink-200/10 px-1.5 py-0.5 text-[11px] break-all"
               >
                 {id}
               </code>

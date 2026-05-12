@@ -33,7 +33,7 @@ export async function GET() {
   const userId = session.user.id;
 
   // Fetch in parallel — these are independent reads.
-  const [user, sessions, emailSubs, accounts] = await Promise.all([
+  const [user, sessions, emailSubs, accounts, plans] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -81,6 +81,12 @@ export async function GET() {
         // Secret credentials intentionally omitted.
       },
     }),
+    // Saved plans (incl. soft-deleted — GDPR right of access is about
+    // showing everything we still hold, even if hidden from the UI).
+    prisma.plan.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
 
   if (!user) {
@@ -89,14 +95,15 @@ export async function GET() {
 
   const payload = {
     exportedAt: new Date().toISOString(),
-    schemaVersion: 1,
+    schemaVersion: 2,
     user,
     accounts,
     sessions,
+    plans,
     emailSubscriptions: emailSubs,
     _meta: {
       notes:
-        "OAuth provider tokens (access/refresh/id_token) are intentionally excluded — they are credentials we hold for the IdP handshake, not personal data. Internal cost/token accounting columns on results are also excluded.",
+        "OAuth provider tokens (access/refresh/id_token) are intentionally excluded — they are credentials we hold for the IdP handshake, not personal data. Internal cost/token accounting columns on results are also excluded. Soft-deleted plans are included so this export reflects everything we still hold.",
     },
   };
 

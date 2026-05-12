@@ -59,6 +59,7 @@ export async function POST(request: Request) {
   // so the user can retry rather than ending up half-deleted.
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.session.deleteMany({ where: { userId } });
+    await tx.plan.deleteMany({ where: { userId } });
     await tx.emailSubscription.deleteMany({ where: { userId } });
     await tx.verificationToken.deleteMany({ where: { identifier: email } });
     await tx.user.delete({ where: { id: userId } });
