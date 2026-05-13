@@ -142,6 +142,13 @@ model Input {
   locale      String   @default("en")
   createdAt   DateTime @default(now()) @map("created_at")
 
+  // Full RecommendInput blob — captures everything the form collected
+  // (studies, pastPositions, languages, salary, priorityOrder, futureSelf,
+  // location, additionalContext, etc.) without us having to grow this
+  // table every time the schema evolves. Top-level columns above stay for
+  // fast SQL slicing on the most common analytics dimensions.
+  fullInput   Json?    @map("full_input")
+
   session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@map("inputs")
@@ -255,6 +262,11 @@ model Plan {
   userId          String    @map("user_id") @db.Uuid
   title           String
   recommendations Json
+  // Snapshot of the full RecommendInput at the moment this plan was
+  // generated — denormalised here so analytics + re-generation don't
+  // need to join through Session/Input. Null for plans created before
+  // we started persisting this.
+  inputSnapshot   Json?     @map("input_snapshot")
   sourceSessionId String?   @map("source_session_id") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt      @map("updated_at")

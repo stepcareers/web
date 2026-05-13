@@ -16,7 +16,7 @@
  */
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { RecommendResultSchema } from "@/lib/ai/types";
+import { RecommendInputSchema, RecommendResultSchema } from "@/lib/ai/types";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -30,6 +30,11 @@ const SavePlanSchema = z.object({
   title: z.string().min(3).max(200).optional(),
   // Loose pointer back to the onboarding Session that produced this plan.
   sourceSessionId: z.string().uuid().optional(),
+  // Full RecommendInput blob — the structured form that drove this plan.
+  // Optional for backwards-compat with old clients that don't send it.
+  // Validated against the same schema the recommender ingests so we never
+  // store malformed garbage.
+  inputSnapshot: RecommendInputSchema.optional(),
 });
 
 export async function GET() {
@@ -74,7 +79,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { recommendations, sourceSessionId } = parsed.data;
+  const { recommendations, sourceSessionId, inputSnapshot } = parsed.data;
   // Derive a title from the foundation rec when the client didn't pass one.
   // Falls back to the first rec, then to a generic stamp so we always have
   // *something* readable in the list.
@@ -93,6 +98,9 @@ export async function POST(request: Request) {
       // Cast through unknown: Prisma's Json input type rejects nested
       // optional shapes, but the Zod parser already proved this is safe.
       recommendations: recommendations as unknown as object,
+      inputSnapshot: inputSnapshot
+        ? (inputSnapshot as unknown as object)
+        : undefined,
       sourceSessionId: sourceSessionId ?? null,
     },
     select: { id: true, title: true, createdAt: true },

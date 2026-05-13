@@ -1089,10 +1089,17 @@ export default function BetaPage() {
       // shows up under /account. 401 (anonymous) is the common case and
       // we swallow it silently — anon users still have their plan in
       // localStorage via the persistence block below.
+      //
+      // We also ship the inputSnapshot (the exact form payload that drove
+      // the plan) so analytics and re-generation never need to reach back
+      // through Session → Input.
       void fetch("/api/me/plans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recommendations: finalData.result }),
+        body: JSON.stringify({
+          recommendations: finalData.result,
+          inputSnapshot: payload,
+        }),
         credentials: "include",
       }).catch(() => {
         // Network blip — not worth surfacing. The plan is already in

@@ -17,6 +17,9 @@ import {
   RECOMMEND_SYSTEM_PROMPT,
 } from "@/lib/ai/prompts/recommend";
 import { verifyTurnstile, getClientIp } from "@/lib/turnstile";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/db";
+import { createHash } from "node:crypto";
 
 /**
  * POST /api/recommend
@@ -352,6 +355,48 @@ export async function POST(req: NextRequest) {
     );
   }
   const profile = parseResult.data;
+
+  // Persist a Session + Input row for every call (anon and authenticated).
+  // Fire-and-forget so a DB blip never kills a recommend that's already
+  // streaming. We capture sessionId regardless so future analytics can
+  // tie a recommend → its input → eventually its plan.
+  //
+  // IP is hashed (sha256 with an env-secret salt) for rate-limit /
+  // dedup heuristics without storing the raw address.
+  const session = await auth().catch(() => null);
+  const userId = session?.user?.id ?? null;
+  const ipRaw = getClientIp(req);
+  const ipHash = ipRaw
+    ? createHash("sha256")
+        .update(`${ipRaw}::${process.env.AUTH_SECRET ?? ""}`)
+        .digest("hex")
+    : null;
+  const userAgent = req.headers.get("user-agent")?.slice(0, 500) ?? null;
+
+  void prisma.session
+    .create({
+      data: {
+        userId,
+        ipHash,
+        userAgent,
+        locale: profile.locale,
+        input: {
+          create: {
+            stage: profile.stage,
+            field: profile.field,
+            skills: profile.skills,
+            interests: profile.interests,
+            dilemma: profile.dilemma,
+            locale: profile.locale,
+            fullInput: profile as unknown as object,
+          },
+        },
+      },
+      select: { id: true },
+    })
+    .catch((err: unknown) => {
+      console.warn("[/api/recommend] failed to persist session/input:", err);
+    });
 
   const t0 = Date.now();
 
