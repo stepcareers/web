@@ -373,7 +373,7 @@ const INTEREST_SUGGESTIONS = [
  * doing real work". */
 function loadingMessageFor(elapsedSec: number): string {
   if (elapsedSec < 5) return "Reading your profile…";
-  if (elapsedSec < 12) return "Searching 200+ curated career paths…";
+  if (elapsedSec < 12) return "Searching 10,500+ curated career paths…";
   if (elapsedSec < 22) return "Finding profiles similar to yours…";
   if (elapsedSec < 35) return "Drafting recommendations grounded in real patterns…";
   if (elapsedSec < 50) return "Writing the honest take — direct, not polite…";
@@ -2530,7 +2530,7 @@ function LoadingView({
   // StreamingView so the real path data takes over.
   const phases = [
     { at: 0, label: "Embedding your profile" },
-    { at: 1, label: "Searching 8,500+ paths" },
+    { at: 1, label: "Searching 10,500+ paths" },
     { at: 3, label: "Drafting your plan" },
   ];
   const activeIndex = phases.reduce(
@@ -2960,7 +2960,7 @@ function MethodologyCard({ meta }: { meta: ApiResponse["meta"] }) {
           <p className="text-sm leading-relaxed text-ink-200/85">
             We embedded your profile (stage, field, skills, education, vision,
             dilemma) with Voyage AI, then retrieved the {paths.length} most
-            similar real career paths from our curated dataset of 200+ paths
+            similar real career paths from our curated dataset of 10,500+ paths
             using cosine distance on pgvector. Each recommendation cites
             which of those paths supported it (see the path slugs on each
             card).

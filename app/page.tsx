@@ -40,7 +40,7 @@ const INTEREST_OPTIONS: Array<{ value: Interest; label: string; hint: string }> 
   {
     value: "accountability",
     label: "Front-loaded check-ins",
-    hint: "Email me at days 1, 2, 4, 7, 14, 21, 30, 45, 60, 90.",
+    hint: "Email me at days 1, 3, 7, 14, 30, 60, 90, 180, 365.",
   },
   {
     value: "other",
@@ -115,7 +115,7 @@ export default function LandingPage() {
                 applicationCategory: "BusinessApplication",
                 operatingSystem: "Web",
                 description:
-                  "AI career planner. Get 3–5 ranked next-step recommendations grounded in 8,500+ curated career paths across 70+ countries. Includes 90-day actions, 12-month outcome, 5-year vision bridge.",
+                  "AI career planner. Get 3–5 ranked next-step recommendations grounded in 10,500+ curated career paths across 76 countries. Includes 90-day actions, 12-month outcome, 5-year vision bridge.",
                 offers: {
                   "@type": "Offer",
                   price: "0",
@@ -212,7 +212,7 @@ export default function LandingPage() {
         <ul className="flex flex-col gap-3 text-base leading-relaxed">
           <Bullet>
             <strong>3–5 ranked next moves</strong> for your specific dilemma,
-            backed by <strong>8,500+ curated career paths across 70+
+            backed by <strong>10,500+ curated career paths across 76
             countries</strong> — US, UK, EU, India, Canada, Australia,
             Singapore, Hong Kong, Japan, Korea, Brazil, MENA, sub-Saharan
             Africa, and more.
@@ -259,13 +259,15 @@ export default function LandingPage() {
             want to be. We backtrack the steps and track your progress.
           </Bullet>
           <Bullet>
-            <strong>Front-loaded check-ins</strong>. Emails at day 1, 2, 4, 7,
-            14, 21, 30, 45, 60, 90 — designed so you actually do the work, not
+            <strong>Front-loaded check-ins</strong>. Emails at day 1, 3, 7, 14,
+            30, 60, 90, 180, 365 — designed so you actually do the work, not
             just read the recommendations.
           </Bullet>
           <Bullet>
-            <strong>Premium tier</strong>. Monthly 1:1 with a senior advisor,
-            CV review tied to your plan, matched job opportunities.
+            <strong>Premium tier</strong>. The full decision tree (NOW → DAY 90
+            → MONTH 6 → MONTH 18 → YEAR 5 with branches), scenario expansion
+            per recommendation, and the check-in cadence above. €19/month or
+            €99 lifetime.
           </Bullet>
         </ul>
       </section>

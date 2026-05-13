@@ -64,7 +64,7 @@ export default function AboutPage() {
           </h2>
           <p className="leading-relaxed text-ink-200/90">
             Step is the thing in between: a recommendation engine
-            grounded in <strong>200+ curated career paths</strong>{" "}
+            grounded in <strong>10,500+ curated career paths</strong>{" "}
             (real anonymized stories from Italy, UK, EU, and US) with
             honest evidence counts and a senior peer voice. We refuse
             invented probabilities. We name leverage explicitly. We
@@ -83,7 +83,7 @@ export default function AboutPage() {
             Where we are
           </h2>
           <p className="leading-relaxed text-ink-200/90">
-            We&apos;re in beta. The core engine works (200+ paths,
+            We&apos;re in beta. The core engine works (10,500+ paths,
             vector retrieval, Claude-grounded recommendations,
             decision tree). We&apos;re focused on quality over feature
             count — every new addition is gated on whether it makes

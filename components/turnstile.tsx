@@ -36,6 +36,7 @@ declare global {
           theme?: "light" | "dark" | "auto";
           size?: "normal" | "compact" | "flexible" | "invisible";
           appearance?: "always" | "execute" | "interaction-only";
+          language?: string;
         },
       ) => string;
       reset: (widgetId?: string) => void;
@@ -138,6 +139,9 @@ export const TurnstileWidget = forwardRef<
           // "flexible" auto-renders compact and visible; managed mode
           // shows the checkbox + label only when needed.
           size: "flexible",
+          // Force English so the widget doesn't auto-localise to the
+          // browser's Accept-Language and mismatch our UI copy.
+          language: "en",
         });
         widgetIdRef.current = renderedId;
       })
