@@ -18,6 +18,7 @@
  * spam. To earn each open, every email needs a fresh angle and a
  * concrete prompt — not "how's it going?".
  */
+import { CHECKIN_ANSWERS, type AnswerOption } from "./answers";
 import type { CheckinDay } from "./schedule";
 
 export type CheckinTemplateArgs = {
@@ -29,6 +30,12 @@ export type CheckinTemplateArgs = {
   planUrl: string;
   /** Absolute one-click unsubscribe URL (HMAC-signed). */
   unsubscribeUrl: string;
+  /**
+   * URL-builder for a single answer-button: given (day, answer key) it
+   * returns the absolute HMAC-signed URL that records that reply. Built
+   * by the cron handler since it owns the signing secret.
+   */
+  buildAnswerUrl: (day: CheckinDay, answerKey: string) => string;
 };
 
 type Template = {
@@ -36,6 +43,36 @@ type Template = {
   html: string;
   text: string;
 };
+
+/**
+ * Render the 3-4 answer buttons for a given day. Returns HTML + text
+ * fragments to splice into each template.
+ */
+function answerButtons(
+  day: CheckinDay,
+  args: CheckinTemplateArgs,
+): { html: string; text: string } {
+  const options: AnswerOption[] = CHECKIN_ANSWERS[day];
+  const buttonsHtml = options
+    .map(
+      (opt) => `
+      <a href="${args.buildAnswerUrl(day, opt.key)}"
+         style="display:inline-block;margin:0 8px 8px 0;padding:10px 16px;border-radius:8px;border:1px solid #d4d4d8;background:#fafafa;color:#111;text-decoration:none;font-size:14px;font-weight:600">${opt.label}</a>
+    `,
+    )
+    .join("");
+
+  const html = `<div style="margin:20px 0 8px 0">
+      <p style="margin:0 0 10px 0;font-size:13px;color:#525252;text-transform:uppercase;letter-spacing:0.06em;font-weight:600">One click — tell us where you are</p>
+      ${buttonsHtml}
+    </div>`;
+
+  const text = `\nQuick answer (just click one):\n${options
+    .map((opt) => `  · ${opt.label} → ${args.buildAnswerUrl(day, opt.key)}`)
+    .join("\n")}\n`;
+
+  return { html, text };
+}
 
 function commonFooter(unsubscribeUrl: string): { html: string; text: string } {
   return {
@@ -48,14 +85,22 @@ function commonFooter(unsubscribeUrl: string): { html: string; text: string } {
   };
 }
 
-function wrap(args: CheckinTemplateArgs, subject: string, body: string, bodyText: string): Template {
+function wrap(
+  args: CheckinTemplateArgs,
+  day: CheckinDay,
+  subject: string,
+  body: string,
+  bodyText: string,
+): Template {
+  const buttons = answerButtons(day, args);
   const footer = commonFooter(args.unsubscribeUrl);
   const html = `<!doctype html>
 <html><body style="font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a;max-width:560px;margin:24px auto;padding:0 16px">
 ${body}
+${buttons.html}
 ${footer.html}
 </body></html>`;
-  const text = `${bodyText}\n\n— Step${footer.text}`;
+  const text = `${bodyText}${buttons.text}\n\n— Step${footer.text}`;
   return { subject, html, text };
 }
 
@@ -73,6 +118,7 @@ const TEMPLATES: Record<CheckinDay, (args: CheckinTemplateArgs) => Template> = {
   1: (a) =>
     wrap(
       a,
+      1,
       "Day 1 — start one thing, even if it's small",
       `<p>${greeting(a.firstName)}</p>
 <p>Yesterday you generated this plan: ${planLink(a)}</p>
@@ -97,6 +143,7 @@ finish anything — just start the first action so it's no longer in
   3: (a) =>
     wrap(
       a,
+      3,
       "Day 3 — what got in the way?",
       `<p>${greeting(a.firstName)}</p>
 <p>Three days in. If you haven't started the foundation move on
@@ -121,6 +168,7 @@ real one. We read every reply.`,
   7: (a) =>
     wrap(
       a,
+      7,
       "Week 1 — what surprised you?",
       `<p>${greeting(a.firstName)}</p>
 <p>Week 1 on ${planLink(a)}. Even tiny progress reveals things the plan
@@ -154,6 +202,7 @@ ${a.planUrl}`,
   14: (a) =>
     wrap(
       a,
+      14,
       "Two weeks in — is the foundation still right?",
       `<p>${greeting(a.firstName)}</p>
 <p>You're 14 days into ${planLink(a)}. By now you've either confirmed
@@ -181,6 +230,7 @@ ${a.planUrl}`,
   30: (a) =>
     wrap(
       a,
+      30,
       "Month 1 — what's visible from outside?",
       `<p>${greeting(a.firstName)}</p>
 <p>A month in on ${planLink(a)}. The honest test of a 90-day move at
@@ -212,6 +262,7 @@ ${a.planUrl}`,
   60: (a) =>
     wrap(
       a,
+      60,
       "Day 60 — 30 days left on the 90-day window",
       `<p>${greeting(a.firstName)}</p>
 <p>You're two-thirds through the 90-day phase of ${planLink(a)}. The
@@ -245,6 +296,7 @@ ${a.planUrl}`,
   90: (a) =>
     wrap(
       a,
+      90,
       "Quarter review — refresh the plan?",
       `<p>${greeting(a.firstName)}</p>
 <p>${planLink(a)} hit its 90-day mark today. Original purpose: validate
@@ -282,6 +334,7 @@ https://step.careers/beta`,
   180: (a) =>
     wrap(
       a,
+      180,
       "Halfway to the 12-month outcome — still on track?",
       `<p>${greeting(a.firstName)}</p>
 <p>${planLink(a)} projected a 12-month outcome — at 6 months you're
@@ -319,6 +372,7 @@ ${a.planUrl}`,
   365: (a) =>
     wrap(
       a,
+      365,
       "One year on — how did it actually go?",
       `<p>${greeting(a.firstName)}</p>
 <p>One year ago today you generated ${planLink(a)}. The 12-month

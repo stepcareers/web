@@ -21,6 +21,7 @@ import { sendEmail } from "@/lib/email";
 import { CHECKIN_DAYS, type CheckinDay } from "@/lib/checkins/schedule";
 import { buildCheckinEmail } from "@/lib/checkins/templates";
 import { signUnsubscribeToken } from "@/lib/checkins/unsubscribe-token";
+import { signReplyToken } from "@/lib/checkins/reply-token";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -159,11 +160,19 @@ async function runDispatch(): Promise<NextResponse> {
     const token = signUnsubscribeToken(plan.userId);
     const unsubscribeUrl = `${APP_URL}/api/unsubscribe/checkins?token=${encodeURIComponent(token)}`;
 
+    // Reply token bound to (plan, day) so the same string is re-derivable
+    // on the reply endpoint without a DB lookup. Each button appends its
+    // answer key as a query param.
+    const replyToken = signReplyToken(plan.id, day);
+    const buildAnswerUrl = (d: CheckinDay, answerKey: string) =>
+      `${APP_URL}/api/checkins/reply?token=${encodeURIComponent(replyToken)}&day=${d}&answer=${encodeURIComponent(answerKey)}`;
+
     const tpl = buildCheckinEmail(day, {
       firstName,
       planTitle: plan.title,
       planUrl,
       unsubscribeUrl,
+      buildAnswerUrl,
     });
 
     const send = await sendEmail({

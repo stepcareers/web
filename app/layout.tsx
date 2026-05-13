@@ -55,6 +55,14 @@ export const metadata: Metadata = {
   },
 };
 
+// Theme color — colours the status bar / browser chrome on mobile so
+// the dark UI doesn't sit on top of a white bar. Separate export from
+// `metadata` per Next 15's typedRoutes split.
+export const viewport = {
+  themeColor: "#0b0b0c",
+  colorScheme: "dark",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {

@@ -17,6 +17,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { RecommendInputSchema, RecommendResultSchema } from "@/lib/ai/types";
+import { classifyTransitionArc } from "@/lib/transition-arcs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -91,6 +92,11 @@ export async function POST(request: Request) {
     foundationRec?.title ||
     `Plan from ${new Date().toLocaleDateString()}`;
 
+  // Classify into a transition arc when we have the input.
+  const transitionArc = inputSnapshot
+    ? classifyTransitionArc(inputSnapshot, recommendations)
+    : null;
+
   const created = await prisma.plan.create({
     data: {
       userId: session.user.id,
@@ -101,9 +107,10 @@ export async function POST(request: Request) {
       inputSnapshot: inputSnapshot
         ? (inputSnapshot as unknown as object)
         : undefined,
+      transitionArc,
       sourceSessionId: sourceSessionId ?? null,
     },
-    select: { id: true, title: true, createdAt: true },
+    select: { id: true, title: true, createdAt: true, transitionArc: true },
   });
 
   return NextResponse.json({ plan: created }, { status: 201 });
