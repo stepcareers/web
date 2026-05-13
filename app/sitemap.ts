@@ -19,5 +19,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/beta`, lastModified, changeFrequency: "weekly", priority: 0.9 },
     { url: `${base}/how-it-works`, lastModified, changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/about`, lastModified, changeFrequency: "monthly", priority: 0.6 },
+    // Legal pages — indexable so search engines, app-store policies, and
+    // payment providers can find them.
+    { url: `${base}/privacy`, lastModified, changeFrequency: "yearly", priority: 0.3 },
+    { url: `${base}/terms`, lastModified, changeFrequency: "yearly", priority: 0.3 },
   ];
 }

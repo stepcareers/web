@@ -391,6 +391,18 @@ export default function LandingPage() {
           >
             Beta
           </Link>
+          <Link
+            href="/privacy"
+            className="underline-offset-4 transition hover:underline hover:text-ink-200/80"
+          >
+            Privacy
+          </Link>
+          <Link
+            href="/terms"
+            className="underline-offset-4 transition hover:underline hover:text-ink-200/80"
+          >
+            Terms
+          </Link>
         </div>
         <span>Built with care in Italy &amp; the UK.</span>
       </footer>
