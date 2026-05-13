@@ -41,6 +41,70 @@ export default function HowItWorksPage() {
         }}
       />
 
+      {/* FAQPage structured data — eligible for Google's expandable
+          rich-result accordion on search results. Each question is
+          phrased the way a real prospect would Google it, and the answer
+          is concrete (not boilerplate marketing). */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            mainEntity: [
+              {
+                "@type": "Question",
+                name: "Is Step actually different from ChatGPT for career advice?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "ChatGPT gives plausible-sounding advice from general training data and invents statistics when you push for specifics. Step retrieves the 5 most semantically similar career paths from a curated dataset of 10,500+ real anonymized stories, then asks Claude to ground every recommendation in those specific paths with honest evidence counts — never invented percentages.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "How big is the dataset behind Step?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "10,500+ real career-transition stories across 76 countries — US, UK, EU markets, India, Canada, Australia, Singapore, Hong Kong, Japan, Korea, Brazil, MENA, sub-Saharan Africa, and others. Each path has stage, field, the transition type, the 4–5 concrete actions that drove it, and the 24-month outcome.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "How much does Step cost?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "The core plan (3–5 ranked moves with 90-day actions, 12-month outcome, and honest take) is free during beta. Premium adds the full decision tree (NOW → DAY 90 → MONTH 6 → MONTH 18 → YEAR 5), scenario expansion per recommendation, and a year of email check-ins. €19/month or €99 one-time lifetime.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "How long does it take to get a plan?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "About 2 minutes to complete the form (or 5 seconds if you drop in a CV). The plan itself generates in 30–60 seconds while you watch the recommendations stream in.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "What data does Step keep about me?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "Only what you submit — form input, optional CV text (the file itself isn't stored), and (if signed in) your generated plans. We never see your card details (Stripe handles those). You can download a complete copy of your data or delete your account at any time from your account page. Full details on the privacy policy.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "Does Step give financial or legal advice?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "No. Step generates educational career recommendations grounded in real career-transition patterns. It's not financial, legal, medical, immigration, or tax advice. Outcomes vary widely. Use it to widen your option set, not as the final word.",
+                },
+              },
+            ],
+          }),
+        }}
+      />
+
       <header className="mb-10 flex items-center justify-between">
         <Link
           href="/"

@@ -16,6 +16,7 @@ import { RecommendResultSchema } from "@/lib/ai/types";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { PlanDeleteButton } from "./PlanDeleteButton";
+import { RecommendationFeedback } from "./RecommendationFeedback";
 
 export const metadata = {
   title: "Plan",
@@ -51,6 +52,16 @@ export default async function PlanViewerPage({ params }: PageProps) {
     },
   });
   if (!plan) notFound();
+
+  // Existing per-recommendation feedback, keyed by recIndex so the inline
+  // widget can render the saved state without a client-side roundtrip.
+  const feedbackRows = await prisma.planRecommendationFeedback.findMany({
+    where: { planId: plan.id, userId: session.user.id },
+    select: { recIndex: true, rating: true },
+  });
+  const feedbackByIndex = new Map(
+    feedbackRows.map((r) => [r.recIndex, r.rating as "up" | "down"]),
+  );
 
   // Validate the stored JSON against the live schema. If the shape has
   // drifted (e.g. an old plan saved before a schema change), fall back
@@ -182,6 +193,13 @@ export default async function PlanViewerPage({ params }: PageProps) {
                     </span>{" "}
                     — {rec.confidence?.reason ?? ""}
                   </p>
+
+                  <RecommendationFeedback
+                    planId={plan.id}
+                    recIndex={idx}
+                    recTitle={rec.title}
+                    initialRating={feedbackByIndex.get(idx) ?? null}
+                  />
                 </div>
               );
             })}

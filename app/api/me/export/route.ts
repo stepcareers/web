@@ -33,7 +33,7 @@ export async function GET() {
   const userId = session.user.id;
 
   // Fetch in parallel — these are independent reads.
-  const [user, sessions, emailSubs, accounts, plans] = await Promise.all([
+  const [user, sessions, emailSubs, accounts, plans, feedback] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -91,6 +91,11 @@ export async function GET() {
       where: { userId },
       orderBy: { createdAt: "desc" },
     }),
+    // Per-recommendation thumbs-up/down ratings the user has cast.
+    prisma.planRecommendationFeedback.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
 
   if (!user) {
@@ -99,11 +104,12 @@ export async function GET() {
 
   const payload = {
     exportedAt: new Date().toISOString(),
-    schemaVersion: 3,
+    schemaVersion: 4,
     user,
     accounts,
     sessions,
     plans,
+    planRecommendationFeedback: feedback,
     emailSubscriptions: emailSubs,
     _meta: {
       notes:

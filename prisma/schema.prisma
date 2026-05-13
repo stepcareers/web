@@ -61,6 +61,7 @@ model User {
   emailSubscriptions EmailSubscription[]
   accounts           Account[]
   plans              Plan[]
+  feedback           PlanRecommendationFeedback[]
 
   @@map("users")
   @@index([email])
@@ -264,11 +265,41 @@ model Plan {
   // current age of the plan >= N. Monotonic so re-runs don't double-send.
   lastCheckinDay Int @default(0) @map("last_checkin_day")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedback     PlanRecommendationFeedback[]
 
   @@map("plans")
   @@index([userId])
   @@index([createdAt])
+}
+
+// ─── Plan recommendation feedback ─────────────────────────────────────
+// One thumbs-up/down per (user, plan, rec-index). Upsert pattern in the
+// API so a user can change their mind without piling up duplicate rows.
+// `recTitle` is denormalised so analytics can group by the recommended
+// move title without re-parsing the JSON column on `plans`.
+// NB: the table name is `plan_recommendation_feedback` (not just
+// `recommendation_feedback`) because a legacy table by that name already
+// exists in the DB with a different schema. New name keeps the migration
+// idempotent and the intent clearer.
+model PlanRecommendationFeedback {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  planId    String   @map("plan_id") @db.Uuid
+  recIndex  Int      @map("rec_index")
+  recTitle  String   @map("rec_title") @db.Text
+  rating    String   // "up" | "down" — kept as string for forward-compat (later: "star" with int)
+  comment   String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, planId, recIndex])
+  @@map("plan_recommendation_feedback")
+  @@index([planId])
+  @@index([rating])
 }
 
 // ─── Email subscriptions (gate + follow-ups) ──────────────────────────
