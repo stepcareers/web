@@ -53,6 +53,10 @@ model User {
   stripeCustomerId String?   @unique @map("stripe_customer_id")
   premiumUntil     DateTime? @map("premium_until")
 
+  // One-click unsubscribe from the Premium check-in cadence. Doesn't
+  // affect transactional emails (magic-link, receipts). NULL = subscribed.
+  checkinsUnsubscribedAt DateTime? @map("checkins_unsubscribed_at")
+
   sessions           Session[]
   emailSubscriptions EmailSubscription[]
   accounts           Account[]
@@ -254,6 +258,11 @@ model Plan {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt      @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
+
+  // Highest check-in day already sent (one of 0, 1, 3, 7, 14, 30, 60, 90,
+  // 180, 365). The cron only sends day N if lastCheckinDay < N AND the
+  // current age of the plan >= N. Monotonic so re-runs don't double-send.
+  lastCheckinDay Int @default(0) @map("last_checkin_day")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

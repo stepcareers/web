@@ -25,6 +25,24 @@ async function logoutAction() {
   await signOut({ redirectTo: "/" });
 }
 
+async function toggleCheckinsAction(formData: FormData) {
+  "use server";
+  const session = await auth();
+  if (!session?.user?.id) return;
+  // Trust nothing client-side: read the current state and flip it.
+  const current = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { checkinsUnsubscribedAt: true },
+  });
+  const newValue = current?.checkinsUnsubscribedAt ? null : new Date();
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { checkinsUnsubscribedAt: newValue },
+  });
+  // formData unused — kept on the signature so React's form action types resolve.
+  void formData;
+}
+
 function formatPlanDate(d: Date): string {
   // "May 12, 2026" — short and unambiguous across EN/IT readers.
   return d.toLocaleDateString("en-US", {
@@ -56,14 +74,19 @@ export default async function AccountPage({ searchParams }: PageProps) {
 
   const u = session.user;
 
-  const [plans, premium] = await Promise.all([
+  const [plans, premium, userPrefs] = await Promise.all([
     prisma.plan.findMany({
       where: { userId: session.user.id, deletedAt: null },
       orderBy: { createdAt: "desc" },
       select: { id: true, title: true, createdAt: true },
     }),
     getPremiumStatus(session.user.id),
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { checkinsUnsubscribedAt: true },
+    }),
   ]);
+  const checkinsUnsubscribed = !!userPrefs?.checkinsUnsubscribedAt;
 
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col px-6 py-10 md:py-14">
@@ -188,6 +211,39 @@ export default async function AccountPage({ searchParams }: PageProps) {
             </ul>
           )}
         </div>
+
+        {/* Email preferences — only shown to Premium users since check-ins
+            are Premium-gated. Free users see nothing, no clutter. */}
+        {premium.active ? (
+          <div className="rounded-lg border border-ink-200/20 bg-ink-200/[0.02] p-5">
+            <h2 className="text-base font-semibold uppercase tracking-wider text-ink-200/70">
+              Email preferences
+            </h2>
+            <p className="mt-3 text-sm text-ink-200/75">
+              {checkinsUnsubscribed
+                ? "You're unsubscribed from the Premium check-in cadence (1, 3, 7, 14, 30, 60, 90, 180, and 365 days after each plan). Re-enable them anytime."
+                : "Premium check-ins are on: short prompts at days 1, 3, 7, 14, 30, 60, 90, 180, and 365 after each plan, asking what you actually did. Reply rates are how we learn what's working."}
+            </p>
+            <form action={toggleCheckinsAction} className="mt-4">
+              <button
+                type="submit"
+                className={
+                  checkinsUnsubscribed
+                    ? "inline-flex items-center gap-2 rounded-md border border-amber-400/40 bg-amber-400/[0.06] px-4 py-2 text-sm font-medium text-amber-200/95 transition hover:bg-amber-400/[0.12]"
+                    : "inline-flex items-center gap-2 rounded-md border border-ink-200/25 px-4 py-2 text-sm text-ink-200/85 transition hover:border-ink-200/50 hover:bg-ink-200/[0.04]"
+                }
+              >
+                {checkinsUnsubscribed
+                  ? "Re-subscribe to check-ins"
+                  : "Unsubscribe from check-ins"}
+              </button>
+            </form>
+            <p className="mt-3 text-xs text-ink-200/55">
+              Transactional emails (receipts, sign-in links) aren&apos;t affected
+              either way.
+            </p>
+          </div>
+        ) : null}
 
         {/* GDPR / privacy controls — right of access + right to erasure. */}
         <div className="rounded-lg border border-ink-200/20 bg-ink-200/[0.02] p-5">

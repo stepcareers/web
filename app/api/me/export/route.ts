@@ -46,6 +46,10 @@ export async function GET() {
         createdAt: true,
         updatedAt: true,
         deletedAt: true,
+        premiumUntil: true,
+        checkinsUnsubscribedAt: true,
+        // Stripe Customer ID intentionally omitted — it's an internal
+        // billing identifier, not personal data.
       },
     }),
     prisma.session.findMany({
@@ -95,7 +99,7 @@ export async function GET() {
 
   const payload = {
     exportedAt: new Date().toISOString(),
-    schemaVersion: 2,
+    schemaVersion: 3,
     user,
     accounts,
     sessions,
